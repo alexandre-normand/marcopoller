@@ -1,4 +1,4 @@
-package poller
+package marcopoller
 
 import (
 	"encoding/json"
@@ -21,10 +21,8 @@ import (
 
 // Environment variables
 const (
-	slackTokenEnv    = "SLACK_TOKEN"
-	projectIDEnv     = "PROJECT_ID"
-	signingSecretEnv = "SIGNING_SECRET"
-	debugEnabledEnv  = "DEBUG"
+	GCPProjectIDEnv = "PROJECT_ID"
+	DebugEnabledEnv = "DEBUG"
 )
 
 // Storage keys
@@ -93,15 +91,124 @@ type Voter struct {
 	name      string
 }
 
-// StartPoll handles a slash command request to start a new poll
-func StartPoll(w http.ResponseWriter, r *http.Request) {
+// MarcoPoller represents a Marco Poller instance
+type MarcoPoller struct {
+	storer             store.GlobalSiloStringStorer
+	messenger          Messenger
+	userFinder         UserFinder
+	slackSigningSecret string
+}
+
+// Messenger is implemented by any value that has the PostMessage, DeleteMessage, UpdateMessage methods
+type Messenger interface {
+	// PostMessage sends a message to a channel. See https://godoc.org/github.com/nlopes/slack#Client.PostMessage
+	PostMessage(channelID string, options ...slack.MsgOption) (string, string, error)
+	// PostEphemeral sends an ephemeral message to a user in a channel. See https://godoc.org/github.com/nlopes/slack#Client.PostEphemeral
+	PostEphemeral(channelID, userID string, options ...slack.MsgOption) (string, error)
+	// DeleteMessage deletes a message in a channel. See https://godoc.org/github.com/nlopes/slack#Client.DeleteMessage
+	DeleteMessage(channel, messageTimestamp string) (string, string, error)
+	// UpdateMessage updates a message in a channel. See https://godoc.org/github.com/nlopes/slack#Client.UpdateMessage
+	UpdateMessage(channelID, timestamp string, options ...slack.MsgOption) (string, string, string, error)
+}
+
+// UserFinder is implemented by any value that has the GetInfo method
+type UserFinder interface {
+	// GetUserInfo will retrieve the complete user information. See https://godoc.org/github.com/nlopes/slack#Client.GetUserInfo
+	GetUserInfo(user string) (*slack.User, error)
+}
+
+// Option is a function that applies an option to a MarcoPoller instance
+type Option func(mp *MarcoPoller) (err error)
+
+// OptionSlackClient sets a nlopes/slack.Client as the implementation of Messenger
+func OptionSlackClient(slackToken string, debug bool) Option {
+	return func(mp *MarcoPoller) (err error) {
+		sc := slack.New(slackToken, slack.OptionDebug(debug))
+		mp.messenger = sc
+		mp.userFinder = sc
+		return nil
+	}
+}
+
+// OptionDatastore sets a datastoredb as the implementation of GlobalSiloStringStorer
+func OptionDatastore(datastoreProjectID string) Option {
+	return func(mp *MarcoPoller) (err error) {
+		mp.storer, err = datastoredb.New(name, datastoreProjectID)
+		if err != nil {
+			return errors.Wrapf(err, "Error initializing datastore persistence on project [%s]", datastoreProjectID)
+		}
+
+		return nil
+	}
+}
+
+// OptionMessenger sets a messenger as the implementation on MarcoPoller
+func OptionMessenger(messenger Messenger) Option {
+	return func(mp *MarcoPoller) (err error) {
+		mp.messenger = messenger
+		return nil
+	}
+}
+
+// OptionUserFinder sets a userFinder as the implementation on MarcoPoller
+func OptionUserFinder(userFinder UserFinder) Option {
+	return func(mp *MarcoPoller) (err error) {
+		mp.userFinder = userFinder
+		return nil
+	}
+}
+
+// OptionStorer sets a storer as the implementation on MarcoPoller
+func OptionStorer(storer store.GlobalSiloStringStorer) Option {
+	return func(mp *MarcoPoller) (err error) {
+		mp.storer = storer
+		return nil
+	}
+}
+
+// New returns a new MarcoPoller with the default slack client and datastoredb implementations
+func New(slackToken string, slackSigningSecret string, datastoreProjectID string) (mp *MarcoPoller, err error) {
+	return NewWithOptions(slackSigningSecret, OptionSlackClient(slackToken, cast.ToBool(os.Getenv(DebugEnabledEnv))), OptionDatastore(datastoreProjectID))
+}
+
+// NewWithOptions returns a new MarcoPoller with specified options
+func NewWithOptions(slackSigningSecret string, opts ...Option) (mp *MarcoPoller, err error) {
+	mp = new(MarcoPoller)
+
+	for _, apply := range opts {
+		err := apply(mp)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	if mp.messenger == nil {
+		return nil, fmt.Errorf("Messenger is nil after applying all Options. Did you forget to set one?")
+	}
+
+	if mp.userFinder == nil {
+		return nil, fmt.Errorf("UserFinder is nil after applying all Options. Did you forget to set one?")
+	}
+
+	return mp, err
+}
+
+// StartPoll handles a slash command request to start a new poll. This function is meant to be wrapped
+// by a function that knows how to fetch the slackToken and the slackSigningSecret secrets in order
+// to be deployable to gcloud
+//
+// Example (the provided berglas-backed wrapping implementation):
+//   func StartPollBerglas(w http.ResponseWriter, r *http.Request) {
+//  	 StartPoll(os.Getenv(slackTokenEnv), os.Getenv(signingSecretEnv), w, r)
+//   }
+func (mp *MarcoPoller) StartPoll(w http.ResponseWriter, r *http.Request) {
 	body, err := ioutil.ReadAll(r.Body)
 	if err != nil {
 		log.Printf("Error reading request body: %v", err)
 		http.Error(w, err.Error(), 500)
 	}
 
-	err = verifyRequest(r.Header, body)
+	err = verifyRequest(mp.slackSigningSecret, r.Header, body)
 	if err != nil {
 		log.Printf("Error validating request: %v", err)
 		http.Error(w, err.Error(), 403)
@@ -115,18 +222,9 @@ func StartPoll(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	storer, err := datastoredb.New(name, os.Getenv(projectIDEnv))
-	if err != nil {
-		log.Printf("Error creating persistence: %v", err)
-		http.Error(w, err.Error(), 500)
-		return
-	}
-
-	sc := slack.New(os.Getenv(slackTokenEnv), slack.OptionDebug(cast.ToBool(os.Getenv(debugEnabledEnv))))
-
 	question, options, err := parsePollParams(pollText)
 	if err != nil {
-		_, _, err = sc.PostMessage(channel, slack.MsgOptionPostEphemeral(creator), slack.MsgOptionText(":warning: Wrong usage. `/poll \"Question\" \"Option 1\" \"Option 2\" ...`", false))
+		_, err = mp.messenger.PostEphemeral(channel, creator, slack.MsgOptionText(":warning: Wrong usage. `/poll \"Question\" \"Option 1\" \"Option 2\" ...`", false))
 		if err != nil {
 			log.Printf("Error sending message: %v", err)
 			http.Error(w, err.Error(), 500)
@@ -137,7 +235,7 @@ func StartPoll(w http.ResponseWriter, r *http.Request) {
 	}
 
 	poll := Poll{ID: shortuuid.New(), MsgID: MsgIdentifier{ChannelID: channel, Timestamp: "TBD"}, Question: question, Options: options, Creator: creator}
-	_, timestamp, err := sc.PostMessage(channel, slack.MsgOptionBlocks(renderPoll(poll, map[string][]Voter{})...))
+	_, timestamp, err := mp.messenger.PostMessage(channel, slack.MsgOptionBlocks(renderPoll(poll, map[string][]Voter{})...))
 	if err != nil {
 		http.Error(w, err.Error(), 500)
 		return
@@ -152,13 +250,14 @@ func StartPoll(w http.ResponseWriter, r *http.Request) {
 	}
 
 	log.Printf("Created poll [%s]", encodedPoll)
-	err = storer.PutSiloString(poll.ID, pollInfoKey, encodedPoll)
+	err = mp.storer.PutSiloString(poll.ID, pollInfoKey, encodedPoll)
 	if err != nil {
 		http.Error(w, err.Error(), 500)
 		return
 	}
 }
 
+// parseNewPollRequest parses a new poll request and returns the pollText, the creator and the channel
 func parseNewPollRequest(requestBody string) (pollText string, creator string, channel string, err error) {
 	params, err := parseRequest(requestBody)
 	if err != nil {
@@ -168,6 +267,8 @@ func parseNewPollRequest(requestBody string) (pollText string, creator string, c
 	return params[textParam], params[creatorParam], params[channelParam], nil
 }
 
+// parseRequest parses a slack request parameters. Since slack request parameters have a single value,
+// the parsed query parameters are assumed to have a single value
 func parseRequest(requestBody string) (params map[string]string, err error) {
 	queryParams, err := url.ParseQuery(string(requestBody))
 	if err != nil {
@@ -184,8 +285,8 @@ func parseRequest(requestBody string) (params map[string]string, err error) {
 
 // verifyRequest verifies the slack request's authenticity (https://api.slack.com/docs/verifying-requests-from-slack). If the request
 // can't be verified or if it fails verification, an error is returned. For a verified valid request, nil is returned
-func verifyRequest(header http.Header, body []byte) (err error) {
-	verifier, err := slack.NewSecretsVerifier(header, os.Getenv(signingSecretEnv))
+func verifyRequest(slackSigningSecret string, header http.Header, body []byte) (err error) {
+	verifier, err := slack.NewSecretsVerifier(header, slackSigningSecret)
 	if err != nil {
 		return errors.Wrap(err, "Error creating slack secrets verifier")
 	}
@@ -229,6 +330,7 @@ func encodePoll(poll Poll) (encoded string, err error) {
 	return string(m), nil
 }
 
+// renderPoll renders a poll with its votes to slack blocks
 func renderPoll(poll Poll, votes map[string][]Voter) (blocks []slack.Block) {
 	blocks = make([]slack.Block, 0)
 
@@ -260,15 +362,22 @@ func renderPoll(poll Poll, votes map[string][]Voter) (blocks []slack.Block) {
 }
 
 // RegisterVote handles a slack voting button action and processes it by storing the vote and updating the
-// poll results (the slack message) accordingly
-func RegisterVote(w http.ResponseWriter, r *http.Request) {
+// poll results (the slack message) accordingly. This function is meant to be wrapped
+// by a function that knows how to fetch the slackToken and the slackSigningSecret secrets in order
+// to be deployable to gcloud
+//
+// Example (the provided berglas-backed wrapping implementation):
+//   func RegisterVoteBerglas(w http.ResponseWriter, r *http.Request) {
+//   	 RegisterVote(os.Getenv(slackTokenEnv), os.Getenv(signingSecretEnv), w, r)
+//   }
+func (mp *MarcoPoller) RegisterVote(w http.ResponseWriter, r *http.Request) {
 	body, err := ioutil.ReadAll(r.Body)
 	if err != nil {
 		log.Printf("Error reading request body: %v", err)
 		http.Error(w, err.Error(), 500)
 	}
 
-	err = verifyRequest(r.Header, body)
+	err = verifyRequest(mp.slackSigningSecret, r.Header, body)
 	if err != nil {
 		log.Printf("Error validating request: %v", err)
 		http.Error(w, err.Error(), 403)
@@ -282,25 +391,16 @@ func RegisterVote(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	sc := slack.New(os.Getenv(slackTokenEnv), slack.OptionDebug(cast.ToBool(os.Getenv(debugEnabledEnv))))
-
 	payload := params["payload"]
 	callback, err := parseCallback(payload)
 	if err != nil {
-		log.Printf("Error parsing payload: %v", err)
+		log.Printf("Error parsing callback payload: %v", err)
 		http.Error(w, err.Error(), 400)
 		return
 	}
 
-	storer, err := datastoredb.New(name, os.Getenv(projectIDEnv))
-	if err != nil {
-		log.Printf("Error creating persistence: %v", err)
-		http.Error(w, err.Error(), 500)
-		return
-	}
-
 	pollID := pollID(callback)
-	encodedPoll, err := storer.GetSiloString(pollID, pollInfoKey)
+	encodedPoll, err := mp.storer.GetSiloString(pollID, pollInfoKey)
 	if err != nil {
 		log.Printf("Error getting existing poll info for id [%s]: %v", pollID, err)
 		http.Error(w, err.Error(), 500)
@@ -317,7 +417,7 @@ func RegisterVote(w http.ResponseWriter, r *http.Request) {
 	vote := voteValue(callback)
 	if vote == deleteValue {
 		if poll.Creator == callback.User.ID {
-			_, _, err = sc.DeleteMessage(poll.MsgID.ChannelID, poll.MsgID.Timestamp)
+			_, _, err = mp.messenger.DeleteMessage(poll.MsgID.ChannelID, poll.MsgID.Timestamp)
 			if err != nil {
 				log.Printf("Error deleting message: %v", err)
 				http.Error(w, err.Error(), 500)
@@ -326,7 +426,7 @@ func RegisterVote(w http.ResponseWriter, r *http.Request) {
 
 			return
 		} else {
-			_, _, err = sc.PostMessage(callback.Channel.ID, slack.MsgOptionPostEphemeral(callback.User.ID), slack.MsgOptionText(fmt.Sprintf(":warning: Only the poll creator (<@%s>) is allowed to delete the poll", poll.Creator), false))
+			_, _, err = mp.messenger.PostMessage(callback.Channel.ID, slack.MsgOptionPostEphemeral(callback.User.ID), slack.MsgOptionText(fmt.Sprintf(":warning: Only the poll creator (<@%s>) is allowed to delete the poll", poll.Creator), false))
 			if err != nil {
 				log.Printf("Error sending message: %v", err)
 				http.Error(w, err.Error(), 500)
@@ -337,22 +437,23 @@ func RegisterVote(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	err = storer.PutSiloString(poll.ID, callback.User.ID, vote)
+	err = mp.storer.PutSiloString(poll.ID, callback.User.ID, vote)
 	if err != nil {
 		log.Printf("Error storing vote [%s] for user [%s] for poll [%s]: %v", vote, callback.User.ID, poll.ID, err)
 		http.Error(w, err.Error(), 500)
 		return
 	}
 
-	votes, err := listVotes(sc, storer, poll.ID)
+	votes, err := mp.listVotes(poll.ID)
 	if err != nil {
 		log.Printf("Error listing votes for poll [%s]: %v", poll.ID, err)
 		http.Error(w, err.Error(), 500)
 		return
 	}
 
-	_, _, _, err = sc.UpdateMessage(poll.MsgID.ChannelID, poll.MsgID.Timestamp, slack.MsgOptionBlocks(renderPoll(poll, votes)...))
+	_, _, _, err = mp.messenger.UpdateMessage(poll.MsgID.ChannelID, poll.MsgID.Timestamp, slack.MsgOptionBlocks(renderPoll(poll, votes)...))
 	if err != nil {
+		log.Printf("Error updating poll [%s] message : %v", poll.ID, err)
 		http.Error(w, err.Error(), 500)
 		return
 	}
@@ -360,8 +461,8 @@ func RegisterVote(w http.ResponseWriter, r *http.Request) {
 
 // listVotes returns the list of votes: a map of vote values for a poll ID to the array of voters. If an error occurs
 // getting the votes or the voter info, that error is returned.
-func listVotes(slackClient *slack.Client, storer store.GlobalSiloStringStorer, pollID string) (votes map[string][]Voter, err error) {
-	values, err := storer.ScanSilo(pollID)
+func (mp *MarcoPoller) listVotes(pollID string) (votes map[string][]Voter, err error) {
+	values, err := mp.storer.ScanSilo(pollID)
 	if err != nil {
 		return votes, err
 	}
@@ -372,7 +473,7 @@ func listVotes(slackClient *slack.Client, storer store.GlobalSiloStringStorer, p
 
 	votes = make(map[string][]Voter)
 	for userID, value := range values {
-		user, err := slackClient.GetUserInfo(userID)
+		user, err := mp.userFinder.GetUserInfo(userID)
 		if err != nil {
 			return map[string][]Voter{}, err
 		}
