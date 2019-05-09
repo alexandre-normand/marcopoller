@@ -86,17 +86,17 @@ type MsgIdentifier struct {
 
 // Voter represents a voting user
 type Voter struct {
-	userID    string
-	avatarURL string
-	name      string
+	userID    string `json:"userID"`
+	avatarURL string `json:"avatarURL"`
+	name      string `json:"name"`
 }
 
 // MarcoPoller represents a Marco Poller instance
 type MarcoPoller struct {
-	storer             store.GlobalSiloStringStorer
-	messenger          Messenger
-	userFinder         UserFinder
-	slackSigningSecret string
+	storer     store.GlobalSiloStringStorer
+	messenger  Messenger
+	userFinder UserFinder
+	verifier   Verifier
 }
 
 // Messenger is implemented by any value that has the PostMessage, DeleteMessage, UpdateMessage methods
@@ -117,6 +117,37 @@ type UserFinder interface {
 	GetUserInfo(user string) (*slack.User, error)
 }
 
+// Verifier is implemented by any value that has the Verify method
+type Verifier interface {
+	Verify(header http.Header, body []byte) (err error)
+}
+
+// SlackVerifier represents a slack verifier backed by github.com/nlopes/slack
+type SlackVerifier struct {
+	slackSigningSecret string
+}
+
+// Verify verifies the slack request's authenticity (https://api.slack.com/docs/verifying-requests-from-slack). If the request
+// can't be verified or if it fails verification, an error is returned. For a verified valid request, nil is returned
+func (v *SlackVerifier) Verify(header http.Header, body []byte) (err error) {
+	verifier, err := slack.NewSecretsVerifier(header, v.slackSigningSecret)
+	if err != nil {
+		return errors.Wrap(err, "Error creating slack secrets verifier")
+	}
+
+	_, err = verifier.Write(body)
+	if err != nil {
+		return errors.Wrap(err, "Error writing request body to slack verifier")
+	}
+
+	err = verifier.Ensure()
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
 // Option is a function that applies an option to a MarcoPoller instance
 type Option func(mp *MarcoPoller) (err error)
 
@@ -126,6 +157,15 @@ func OptionSlackClient(slackToken string, debug bool) Option {
 		sc := slack.New(slackToken, slack.OptionDebug(debug))
 		mp.messenger = sc
 		mp.userFinder = sc
+		return nil
+	}
+}
+
+// OptionSlackVerifier sets a nlopes/slack.Client as the implementation of Messenger
+func OptionSlackVerifier(slackSigningSecret string) Option {
+	return func(mp *MarcoPoller) (err error) {
+		mp.verifier = &SlackVerifier{slackSigningSecret: slackSigningSecret}
+
 		return nil
 	}
 }
@@ -166,13 +206,21 @@ func OptionStorer(storer store.GlobalSiloStringStorer) Option {
 	}
 }
 
+// OptionVerifier sets a verifier as the implementation on MarcoPoller
+func OptionVerifier(verifier Verifier) Option {
+	return func(mp *MarcoPoller) (err error) {
+		mp.verifier = verifier
+		return nil
+	}
+}
+
 // New returns a new MarcoPoller with the default slack client and datastoredb implementations
 func New(slackToken string, slackSigningSecret string, datastoreProjectID string) (mp *MarcoPoller, err error) {
-	return NewWithOptions(slackSigningSecret, OptionSlackClient(slackToken, cast.ToBool(os.Getenv(DebugEnabledEnv))), OptionDatastore(datastoreProjectID))
+	return NewWithOptions(OptionSlackVerifier(slackSigningSecret), OptionSlackClient(slackToken, cast.ToBool(os.Getenv(DebugEnabledEnv))), OptionDatastore(datastoreProjectID))
 }
 
 // NewWithOptions returns a new MarcoPoller with specified options
-func NewWithOptions(slackSigningSecret string, opts ...Option) (mp *MarcoPoller, err error) {
+func NewWithOptions(opts ...Option) (mp *MarcoPoller, err error) {
 	mp = new(MarcoPoller)
 
 	for _, apply := range opts {
@@ -208,7 +256,7 @@ func (mp *MarcoPoller) StartPoll(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), 500)
 	}
 
-	err = verifyRequest(mp.slackSigningSecret, r.Header, body)
+	err = mp.verifier.Verify(r.Header, body)
 	if err != nil {
 		log.Printf("Error validating request: %v", err)
 		http.Error(w, err.Error(), 403)
@@ -281,27 +329,6 @@ func parseRequest(requestBody string) (params map[string]string, err error) {
 	}
 
 	return params, nil
-}
-
-// verifyRequest verifies the slack request's authenticity (https://api.slack.com/docs/verifying-requests-from-slack). If the request
-// can't be verified or if it fails verification, an error is returned. For a verified valid request, nil is returned
-func verifyRequest(slackSigningSecret string, header http.Header, body []byte) (err error) {
-	verifier, err := slack.NewSecretsVerifier(header, slackSigningSecret)
-	if err != nil {
-		return errors.Wrap(err, "Error creating slack secrets verifier")
-	}
-
-	_, err = verifier.Write(body)
-	if err != nil {
-		return errors.Wrap(err, "Error writing request body to slack verifier")
-	}
-
-	err = verifier.Ensure()
-	if err != nil {
-		return err
-	}
-
-	return nil
 }
 
 // parseCallback parses a slack callback. If the payload is empty or there's a parsing error
@@ -377,7 +404,7 @@ func (mp *MarcoPoller) RegisterVote(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), 500)
 	}
 
-	err = verifyRequest(mp.slackSigningSecret, r.Header, body)
+	err = mp.verifier.Verify(r.Header, body)
 	if err != nil {
 		log.Printf("Error validating request: %v", err)
 		http.Error(w, err.Error(), 403)
