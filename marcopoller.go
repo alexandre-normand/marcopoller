@@ -86,9 +86,9 @@ type MsgIdentifier struct {
 
 // Voter represents a voting user
 type Voter struct {
-	userID    string `json:"userID"`
-	avatarURL string `json:"avatarURL"`
-	name      string `json:"name"`
+	userID    string
+	avatarURL string
+	name      string
 }
 
 // MarcoPoller represents a Marco Poller instance
@@ -238,6 +238,14 @@ func NewWithOptions(opts ...Option) (mp *MarcoPoller, err error) {
 		return nil, fmt.Errorf("UserFinder is nil after applying all Options. Did you forget to set one?")
 	}
 
+	if mp.verifier == nil {
+		return nil, fmt.Errorf("Verifier is nil after applying all Options. Did you forget to set one?")
+	}
+
+	if mp.storer == nil {
+		return nil, fmt.Errorf("Storer is nil after applying all Options. Did you forget to set one?")
+	}
+
 	return mp, err
 }
 
@@ -254,6 +262,7 @@ func (mp *MarcoPoller) StartPoll(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		log.Printf("Error reading request body: %v", err)
 		http.Error(w, err.Error(), 500)
+		return
 	}
 
 	err = mp.verifier.Verify(r.Header, body)
@@ -365,24 +374,26 @@ func renderPoll(poll Poll, votes map[string][]Voter) (blocks []slack.Block) {
 	blocks = append(blocks, *slack.NewDividerBlock())
 	for i, opt := range poll.Options {
 		optionID := fmt.Sprintf("%d", i)
-		blocks = append(blocks, *slack.NewSectionBlock(slack.NewTextBlockObject("mrkdwn", fmt.Sprintf(" • %s", opt), false, false), nil, slack.NewButtonBlockElement(poll.ID, optionID, slack.NewTextBlockObject("plain_text", "Vote", false, false))))
+		blocks = append(blocks, *slack.NewSectionBlock(slack.NewTextBlockObject("mrkdwn", fmt.Sprintf(" • %s", opt), false, false), nil, *slack.NewButtonBlockElement(poll.ID, optionID, slack.NewTextBlockObject("plain_text", "Vote", false, false))))
 		if voters, ok := votes[optionID]; ok {
 			voteBlocks := make([]slack.BlockObject, 0)
 			i := 0
 			for i = 0; i < len(voters) && i < 9; i++ {
 				voter := voters[i]
-				voteBlocks = append(voteBlocks, slack.NewImageBlockObject(voter.avatarURL, voter.name))
+				voteBlocks = append(voteBlocks, *slack.NewImageBlockObject(voter.avatarURL, voter.name))
 			}
 
 			if i == 9 {
-				voteBlocks = append(voteBlocks, slack.NewTextBlockObject("mrkdwn", fmt.Sprintf("`+ %d`", len(voters)-9), false, false))
+				voteBlocks = append(voteBlocks, *slack.NewTextBlockObject("mrkdwn", fmt.Sprintf("`+ %d`", len(voters)-9), false, false))
 			}
 
-			blocks = append(blocks, *slack.NewContextBlock("", voteBlocks...))
+			if len(voteBlocks) > 0 {
+				blocks = append(blocks, *slack.NewContextBlock("", voteBlocks...))
+			}
 		}
 	}
 
-	blocks = append(blocks, *slack.NewSectionBlock(slack.NewTextBlockObject("mrkdwn", " ", false, false), nil, slack.NewButtonBlockElement(poll.ID, deleteValue, slack.NewTextBlockObject("plain_text", "Delete poll", false, false))))
+	blocks = append(blocks, *slack.NewSectionBlock(slack.NewTextBlockObject("mrkdwn", " ", false, false), nil, *slack.NewButtonBlockElement(poll.ID, deleteValue, slack.NewTextBlockObject("plain_text", "Delete poll", false, false))))
 	blocks = append(blocks, *slack.NewContextBlock("", slack.NewTextBlockObject("mrkdwn", fmt.Sprintf("Created by <@%s>", poll.Creator), false, false)))
 
 	return blocks
@@ -402,6 +413,8 @@ func (mp *MarcoPoller) RegisterVote(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		log.Printf("Error reading request body: %v", err)
 		http.Error(w, err.Error(), 500)
+
+		return
 	}
 
 	err = mp.verifier.Verify(r.Header, body)
@@ -453,7 +466,7 @@ func (mp *MarcoPoller) RegisterVote(w http.ResponseWriter, r *http.Request) {
 
 			return
 		} else {
-			_, _, err = mp.messenger.PostMessage(callback.Channel.ID, slack.MsgOptionPostEphemeral(callback.User.ID), slack.MsgOptionText(fmt.Sprintf(":warning: Only the poll creator (<@%s>) is allowed to delete the poll", poll.Creator), false))
+			_, err = mp.messenger.PostEphemeral(callback.Channel.ID, callback.User.ID, slack.MsgOptionText(fmt.Sprintf(":warning: Only the poll creator (<@%s>) is allowed to delete the poll", poll.Creator), false))
 			if err != nil {
 				log.Printf("Error sending message: %v", err)
 				http.Error(w, err.Error(), 500)
@@ -502,7 +515,7 @@ func (mp *MarcoPoller) listVotes(pollID string) (votes map[string][]Voter, err e
 	for userID, value := range values {
 		user, err := mp.userFinder.GetUserInfo(userID)
 		if err != nil {
-			return map[string][]Voter{}, err
+			return nil, err
 		}
 
 		if _, ok := votes[value]; !ok {
@@ -575,8 +588,8 @@ func parsePollParams(rawPoll string) (pollQuestion string, options []string, err
 		params = append(params, param)
 	}
 
-	if len(params) == 0 {
-		return "", nil, fmt.Errorf("No parameters in string [%s]", rawPoll)
+	if len(params) < 2 {
+		return "", nil, fmt.Errorf("Missing parameters in string [%s]", rawPoll)
 	}
 
 	return params[0], params[1:], nil
