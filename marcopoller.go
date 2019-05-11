@@ -294,6 +294,7 @@ func (mp *MarcoPoller) StartPoll(w http.ResponseWriter, r *http.Request) {
 	poll := Poll{ID: shortuuid.New(), MsgID: MsgIdentifier{ChannelID: channel, Timestamp: "TBD"}, Question: question, Options: options, Creator: creator}
 	_, timestamp, err := mp.messenger.PostMessage(channel, slack.MsgOptionBlocks(renderPoll(poll, map[string][]Voter{})...))
 	if err != nil {
+		log.Printf("Error sending poll message: %v", err)
 		http.Error(w, err.Error(), 500)
 		return
 	}
@@ -309,6 +310,7 @@ func (mp *MarcoPoller) StartPoll(w http.ResponseWriter, r *http.Request) {
 	log.Printf("Created poll [%s]", encodedPoll)
 	err = mp.storer.PutSiloString(poll.ID, pollInfoKey, encodedPoll)
 	if err != nil {
+		log.Printf("Error persisting poll [%s]", poll.ID)
 		http.Error(w, err.Error(), 500)
 		return
 	}
@@ -370,31 +372,35 @@ func encodePoll(poll Poll) (encoded string, err error) {
 func renderPoll(poll Poll, votes map[string][]Voter) (blocks []slack.Block) {
 	blocks = make([]slack.Block, 0)
 
-	blocks = append(blocks, *slack.NewSectionBlock(slack.NewTextBlockObject("mrkdwn", fmt.Sprintf("*%s*", poll.Question), false, false), nil, nil))
-	blocks = append(blocks, *slack.NewDividerBlock())
+	blocks = append(blocks, slack.NewSectionBlock(slack.NewTextBlockObject("mrkdwn", fmt.Sprintf("*%s*", poll.Question), false, false), nil, nil))
+	blocks = append(blocks, slack.NewDividerBlock())
 	for i, opt := range poll.Options {
 		optionID := fmt.Sprintf("%d", i)
-		blocks = append(blocks, *slack.NewSectionBlock(slack.NewTextBlockObject("mrkdwn", fmt.Sprintf(" • %s", opt), false, false), nil, *slack.NewButtonBlockElement(poll.ID, optionID, slack.NewTextBlockObject("plain_text", "Vote", false, false))))
+		voteButton := slack.NewButtonBlockElement(poll.ID, optionID, slack.NewTextBlockObject("plain_text", "Vote", false, false))
+		voteButton.Style = slack.StylePrimary
+		blocks = append(blocks, *slack.NewSectionBlock(slack.NewTextBlockObject("mrkdwn", fmt.Sprintf(" • %s", opt), false, false), nil, slack.NewAccessory(voteButton)))
 		if voters, ok := votes[optionID]; ok {
-			voteBlocks := make([]slack.BlockObject, 0)
+			voteBlocks := make([]slack.MixedElement, 0)
 			i := 0
 			for i = 0; i < len(voters) && i < 9; i++ {
 				voter := voters[i]
-				voteBlocks = append(voteBlocks, *slack.NewImageBlockObject(voter.avatarURL, voter.name))
+				voteBlocks = append(voteBlocks, slack.NewImageBlockElement(voter.avatarURL, voter.name))
 			}
 
 			if i == 9 {
-				voteBlocks = append(voteBlocks, *slack.NewTextBlockObject("mrkdwn", fmt.Sprintf("`+ %d`", len(voters)-9), false, false))
+				voteBlocks = append(voteBlocks, slack.NewTextBlockObject("mrkdwn", fmt.Sprintf("`+ %d`", len(voters)-9), false, false))
 			}
 
 			if len(voteBlocks) > 0 {
-				blocks = append(blocks, *slack.NewContextBlock("", voteBlocks...))
+				blocks = append(blocks, slack.NewContextBlock("", voteBlocks...))
 			}
 		}
 	}
 
-	blocks = append(blocks, *slack.NewSectionBlock(slack.NewTextBlockObject("mrkdwn", " ", false, false), nil, *slack.NewButtonBlockElement(poll.ID, deleteValue, slack.NewTextBlockObject("plain_text", "Delete poll", false, false))))
-	blocks = append(blocks, *slack.NewContextBlock("", slack.NewTextBlockObject("mrkdwn", fmt.Sprintf("Created by <@%s>", poll.Creator), false, false)))
+	deleteButton := slack.NewButtonBlockElement(poll.ID, deleteValue, slack.NewTextBlockObject("plain_text", "Delete poll", false, false))
+	deleteButton.Style = slack.StyleDanger
+	blocks = append(blocks, slack.NewSectionBlock(slack.NewTextBlockObject("mrkdwn", " ", false, false), nil, slack.NewAccessory(deleteButton)))
+	blocks = append(blocks, slack.NewContextBlock("", slack.NewTextBlockObject("mrkdwn", fmt.Sprintf("Created by <@%s>", poll.Creator), false, false)))
 
 	return blocks
 }

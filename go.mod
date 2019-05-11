@@ -10,7 +10,7 @@ require (
 	github.com/kr/pretty v0.1.0 // indirect
 	github.com/kr/pty v1.1.3 // indirect
 	github.com/lithammer/shortuuid v3.0.0+incompatible
-	github.com/nlopes/slack v0.5.1-0.20190320162602-73f226d81822
+	github.com/nlopes/slack v0.5.1-0.20190508220637-3970c759dead
 	github.com/pkg/errors v0.8.1
 	github.com/spf13/cast v1.3.0
 	github.com/stretchr/testify v1.2.2

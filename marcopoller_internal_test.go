@@ -1,7 +1,7 @@
 package marcopoller
 
 import (
-	"github.com/nlopes/slack"
+	"encoding/json"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"testing"
@@ -10,30 +10,19 @@ import (
 func TestRenderPollNoVotes(t *testing.T) {
 	poll := Poll{ID: "un", MsgID: MsgIdentifier{ChannelID: "myLittleChannel", Timestamp: "1120"}, Question: "What's your favorite book?", Options: []string{"Ishmael", "Story of B", "My Ishmael", "Paradise Built in Hell"}, Creator: "marco"}
 	blocks := renderPoll(poll, map[string][]Voter{})
-	assert.Equal(t, []slack.Block{*slack.NewSectionBlock(slack.NewTextBlockObject("mrkdwn", "*What's your favorite book?*", false, false), nil, nil),
-		*slack.NewDividerBlock(),
-		*slack.NewSectionBlock(slack.NewTextBlockObject("mrkdwn", " • Ishmael", false, false), nil, *slack.NewButtonBlockElement("un", "0", slack.NewTextBlockObject("plain_text", "Vote", false, false))),
-		*slack.NewSectionBlock(slack.NewTextBlockObject("mrkdwn", " • Story of B", false, false), nil, *slack.NewButtonBlockElement("un", "1", slack.NewTextBlockObject("plain_text", "Vote", false, false))),
-		*slack.NewSectionBlock(slack.NewTextBlockObject("mrkdwn", " • My Ishmael", false, false), nil, *slack.NewButtonBlockElement("un", "2", slack.NewTextBlockObject("plain_text", "Vote", false, false))),
-		*slack.NewSectionBlock(slack.NewTextBlockObject("mrkdwn", " • Paradise Built in Hell", false, false), nil, *slack.NewButtonBlockElement("un", "3", slack.NewTextBlockObject("plain_text", "Vote", false, false))),
-		*slack.NewSectionBlock(slack.NewTextBlockObject("mrkdwn", " ", false, false), nil, *slack.NewButtonBlockElement("un", "delete", slack.NewTextBlockObject("plain_text", "Delete poll", false, false))),
-		*slack.NewContextBlock("", slack.NewTextBlockObject("mrkdwn", "Created by <@marco>", false, false)),
-	}, blocks)
+	render, err := json.Marshal(blocks)
+	require.NoError(t, err)
+
+	assert.Equal(t, "[{\"type\":\"section\",\"text\":{\"type\":\"mrkdwn\",\"text\":\"*What's your favorite book?*\"}},{\"type\":\"divider\"},{\"type\":\"section\",\"text\":{\"type\":\"mrkdwn\",\"text\":\" • Ishmael\"},\"accessory\":{\"type\":\"button\",\"text\":{\"type\":\"plain_text\",\"text\":\"Vote\"},\"action_id\":\"un\",\"value\":\"0\",\"style\":\"primary\"}},{\"type\":\"section\",\"text\":{\"type\":\"mrkdwn\",\"text\":\" • Story of B\"},\"accessory\":{\"type\":\"button\",\"text\":{\"type\":\"plain_text\",\"text\":\"Vote\"},\"action_id\":\"un\",\"value\":\"1\",\"style\":\"primary\"}},{\"type\":\"section\",\"text\":{\"type\":\"mrkdwn\",\"text\":\" • My Ishmael\"},\"accessory\":{\"type\":\"button\",\"text\":{\"type\":\"plain_text\",\"text\":\"Vote\"},\"action_id\":\"un\",\"value\":\"2\",\"style\":\"primary\"}},{\"type\":\"section\",\"text\":{\"type\":\"mrkdwn\",\"text\":\" • Paradise Built in Hell\"},\"accessory\":{\"type\":\"button\",\"text\":{\"type\":\"plain_text\",\"text\":\"Vote\"},\"action_id\":\"un\",\"value\":\"3\",\"style\":\"primary\"}},{\"type\":\"section\",\"text\":{\"type\":\"mrkdwn\",\"text\":\" \"},\"accessory\":{\"type\":\"button\",\"text\":{\"type\":\"plain_text\",\"text\":\"Delete poll\"},\"action_id\":\"un\",\"value\":\"delete\",\"style\":\"danger\"}},{\"type\":\"context\",\"elements\":[{\"type\":\"mrkdwn\",\"text\":\"Created by \\u003c@marco\\u003e\"}]}]", string(render))
 }
 
 func TestRenderPollOneVote(t *testing.T) {
 	poll := Poll{ID: "un", MsgID: MsgIdentifier{ChannelID: "myLittleChannel", Timestamp: "1120"}, Question: "What's your favorite book?", Options: []string{"Ishmael", "Story of B", "My Ishmael", "Paradise Built in Hell"}, Creator: "marco"}
 	blocks := renderPoll(poll, map[string][]Voter{"0": []Voter{Voter{userID: "marco", avatarURL: "https://avatar.me", name: "Marco Poller"}}})
-	assert.Equal(t, []slack.Block{*slack.NewSectionBlock(slack.NewTextBlockObject("mrkdwn", "*What's your favorite book?*", false, false), nil, nil),
-		*slack.NewDividerBlock(),
-		*slack.NewSectionBlock(slack.NewTextBlockObject("mrkdwn", " • Ishmael", false, false), nil, *slack.NewButtonBlockElement("un", "0", slack.NewTextBlockObject("plain_text", "Vote", false, false))),
-		*slack.NewContextBlock("", *slack.NewImageBlockObject("https://avatar.me", "Marco Poller")),
-		*slack.NewSectionBlock(slack.NewTextBlockObject("mrkdwn", " • Story of B", false, false), nil, *slack.NewButtonBlockElement("un", "1", slack.NewTextBlockObject("plain_text", "Vote", false, false))),
-		*slack.NewSectionBlock(slack.NewTextBlockObject("mrkdwn", " • My Ishmael", false, false), nil, *slack.NewButtonBlockElement("un", "2", slack.NewTextBlockObject("plain_text", "Vote", false, false))),
-		*slack.NewSectionBlock(slack.NewTextBlockObject("mrkdwn", " • Paradise Built in Hell", false, false), nil, *slack.NewButtonBlockElement("un", "3", slack.NewTextBlockObject("plain_text", "Vote", false, false))),
-		*slack.NewSectionBlock(slack.NewTextBlockObject("mrkdwn", " ", false, false), nil, *slack.NewButtonBlockElement("un", "delete", slack.NewTextBlockObject("plain_text", "Delete poll", false, false))),
-		*slack.NewContextBlock("", slack.NewTextBlockObject("mrkdwn", "Created by <@marco>", false, false)),
-	}, blocks)
+	render, err := json.Marshal(blocks)
+	require.NoError(t, err)
+
+	assert.Equal(t, "[{\"type\":\"section\",\"text\":{\"type\":\"mrkdwn\",\"text\":\"*What's your favorite book?*\"}},{\"type\":\"divider\"},{\"type\":\"section\",\"text\":{\"type\":\"mrkdwn\",\"text\":\" • Ishmael\"},\"accessory\":{\"type\":\"button\",\"text\":{\"type\":\"plain_text\",\"text\":\"Vote\"},\"action_id\":\"un\",\"value\":\"0\",\"style\":\"primary\"}},{\"type\":\"context\",\"elements\":[{\"type\":\"image\",\"image_url\":\"https://avatar.me\",\"alt_text\":\"Marco Poller\"}]},{\"type\":\"section\",\"text\":{\"type\":\"mrkdwn\",\"text\":\" • Story of B\"},\"accessory\":{\"type\":\"button\",\"text\":{\"type\":\"plain_text\",\"text\":\"Vote\"},\"action_id\":\"un\",\"value\":\"1\",\"style\":\"primary\"}},{\"type\":\"section\",\"text\":{\"type\":\"mrkdwn\",\"text\":\" • My Ishmael\"},\"accessory\":{\"type\":\"button\",\"text\":{\"type\":\"plain_text\",\"text\":\"Vote\"},\"action_id\":\"un\",\"value\":\"2\",\"style\":\"primary\"}},{\"type\":\"section\",\"text\":{\"type\":\"mrkdwn\",\"text\":\" • Paradise Built in Hell\"},\"accessory\":{\"type\":\"button\",\"text\":{\"type\":\"plain_text\",\"text\":\"Vote\"},\"action_id\":\"un\",\"value\":\"3\",\"style\":\"primary\"}},{\"type\":\"section\",\"text\":{\"type\":\"mrkdwn\",\"text\":\" \"},\"accessory\":{\"type\":\"button\",\"text\":{\"type\":\"plain_text\",\"text\":\"Delete poll\"},\"action_id\":\"un\",\"value\":\"delete\",\"style\":\"danger\"}},{\"type\":\"context\",\"elements\":[{\"type\":\"mrkdwn\",\"text\":\"Created by \\u003c@marco\\u003e\"}]}]", string(render))
 }
 
 func TestRenderPollElevenVoters(t *testing.T) {
@@ -51,26 +40,10 @@ func TestRenderPollElevenVoters(t *testing.T) {
 		Voter{userID: "user11", avatarURL: "https://avatar11.me", name: "User11"},
 	}})
 
-	assert.Equal(t, []slack.Block{*slack.NewSectionBlock(slack.NewTextBlockObject("mrkdwn", "*What's your favorite book?*", false, false), nil, nil),
-		*slack.NewDividerBlock(),
-		*slack.NewSectionBlock(slack.NewTextBlockObject("mrkdwn", " • Ishmael", false, false), nil, *slack.NewButtonBlockElement("un", "0", slack.NewTextBlockObject("plain_text", "Vote", false, false))),
-		*slack.NewContextBlock("", *slack.NewImageBlockObject("https://avatar1.me", "User1"),
-			*slack.NewImageBlockObject("https://avatar2.me", "User2"),
-			*slack.NewImageBlockObject("https://avatar3.me", "User3"),
-			*slack.NewImageBlockObject("https://avatar4.me", "User4"),
-			*slack.NewImageBlockObject("https://avatar5.me", "User5"),
-			*slack.NewImageBlockObject("https://avatar6.me", "User6"),
-			*slack.NewImageBlockObject("https://avatar7.me", "User7"),
-			*slack.NewImageBlockObject("https://avatar8.me", "User8"),
-			*slack.NewImageBlockObject("https://avatar9.me", "User9"),
-			*slack.NewTextBlockObject("mrkdwn", "`+ 2`", false, false),
-		),
-		*slack.NewSectionBlock(slack.NewTextBlockObject("mrkdwn", " • Story of B", false, false), nil, *slack.NewButtonBlockElement("un", "1", slack.NewTextBlockObject("plain_text", "Vote", false, false))),
-		*slack.NewSectionBlock(slack.NewTextBlockObject("mrkdwn", " • My Ishmael", false, false), nil, *slack.NewButtonBlockElement("un", "2", slack.NewTextBlockObject("plain_text", "Vote", false, false))),
-		*slack.NewSectionBlock(slack.NewTextBlockObject("mrkdwn", " • Paradise Built in Hell", false, false), nil, *slack.NewButtonBlockElement("un", "3", slack.NewTextBlockObject("plain_text", "Vote", false, false))),
-		*slack.NewSectionBlock(slack.NewTextBlockObject("mrkdwn", " ", false, false), nil, *slack.NewButtonBlockElement("un", "delete", slack.NewTextBlockObject("plain_text", "Delete poll", false, false))),
-		*slack.NewContextBlock("", slack.NewTextBlockObject("mrkdwn", "Created by <@marco>", false, false)),
-	}, blocks)
+	render, err := json.Marshal(blocks)
+	require.NoError(t, err)
+
+	assert.Equal(t, "[{\"type\":\"section\",\"text\":{\"type\":\"mrkdwn\",\"text\":\"*What's your favorite book?*\"}},{\"type\":\"divider\"},{\"type\":\"section\",\"text\":{\"type\":\"mrkdwn\",\"text\":\" • Ishmael\"},\"accessory\":{\"type\":\"button\",\"text\":{\"type\":\"plain_text\",\"text\":\"Vote\"},\"action_id\":\"un\",\"value\":\"0\",\"style\":\"primary\"}},{\"type\":\"context\",\"elements\":[{\"type\":\"image\",\"image_url\":\"https://avatar1.me\",\"alt_text\":\"User1\"},{\"type\":\"image\",\"image_url\":\"https://avatar2.me\",\"alt_text\":\"User2\"},{\"type\":\"image\",\"image_url\":\"https://avatar3.me\",\"alt_text\":\"User3\"},{\"type\":\"image\",\"image_url\":\"https://avatar4.me\",\"alt_text\":\"User4\"},{\"type\":\"image\",\"image_url\":\"https://avatar5.me\",\"alt_text\":\"User5\"},{\"type\":\"image\",\"image_url\":\"https://avatar6.me\",\"alt_text\":\"User6\"},{\"type\":\"image\",\"image_url\":\"https://avatar7.me\",\"alt_text\":\"User7\"},{\"type\":\"image\",\"image_url\":\"https://avatar8.me\",\"alt_text\":\"User8\"},{\"type\":\"image\",\"image_url\":\"https://avatar9.me\",\"alt_text\":\"User9\"},{\"type\":\"mrkdwn\",\"text\":\"`+ 2`\"}]},{\"type\":\"section\",\"text\":{\"type\":\"mrkdwn\",\"text\":\" • Story of B\"},\"accessory\":{\"type\":\"button\",\"text\":{\"type\":\"plain_text\",\"text\":\"Vote\"},\"action_id\":\"un\",\"value\":\"1\",\"style\":\"primary\"}},{\"type\":\"section\",\"text\":{\"type\":\"mrkdwn\",\"text\":\" • My Ishmael\"},\"accessory\":{\"type\":\"button\",\"text\":{\"type\":\"plain_text\",\"text\":\"Vote\"},\"action_id\":\"un\",\"value\":\"2\",\"style\":\"primary\"}},{\"type\":\"section\",\"text\":{\"type\":\"mrkdwn\",\"text\":\" • Paradise Built in Hell\"},\"accessory\":{\"type\":\"button\",\"text\":{\"type\":\"plain_text\",\"text\":\"Vote\"},\"action_id\":\"un\",\"value\":\"3\",\"style\":\"primary\"}},{\"type\":\"section\",\"text\":{\"type\":\"mrkdwn\",\"text\":\" \"},\"accessory\":{\"type\":\"button\",\"text\":{\"type\":\"plain_text\",\"text\":\"Delete poll\"},\"action_id\":\"un\",\"value\":\"delete\",\"style\":\"danger\"}},{\"type\":\"context\",\"elements\":[{\"type\":\"mrkdwn\",\"text\":\"Created by \\u003c@marco\\u003e\"}]}]", string(render))
 }
 
 func TestRenderPollTenVoters(t *testing.T) {
@@ -87,26 +60,10 @@ func TestRenderPollTenVoters(t *testing.T) {
 		Voter{userID: "user10", avatarURL: "https://avatar10.me", name: "User10"},
 	}})
 
-	assert.Equal(t, []slack.Block{*slack.NewSectionBlock(slack.NewTextBlockObject("mrkdwn", "*What's your favorite book?*", false, false), nil, nil),
-		*slack.NewDividerBlock(),
-		*slack.NewSectionBlock(slack.NewTextBlockObject("mrkdwn", " • Ishmael", false, false), nil, *slack.NewButtonBlockElement("un", "0", slack.NewTextBlockObject("plain_text", "Vote", false, false))),
-		*slack.NewContextBlock("", *slack.NewImageBlockObject("https://avatar1.me", "User1"),
-			*slack.NewImageBlockObject("https://avatar2.me", "User2"),
-			*slack.NewImageBlockObject("https://avatar3.me", "User3"),
-			*slack.NewImageBlockObject("https://avatar4.me", "User4"),
-			*slack.NewImageBlockObject("https://avatar5.me", "User5"),
-			*slack.NewImageBlockObject("https://avatar6.me", "User6"),
-			*slack.NewImageBlockObject("https://avatar7.me", "User7"),
-			*slack.NewImageBlockObject("https://avatar8.me", "User8"),
-			*slack.NewImageBlockObject("https://avatar9.me", "User9"),
-			*slack.NewTextBlockObject("mrkdwn", "`+ 1`", false, false),
-		),
-		*slack.NewSectionBlock(slack.NewTextBlockObject("mrkdwn", " • Story of B", false, false), nil, *slack.NewButtonBlockElement("un", "1", slack.NewTextBlockObject("plain_text", "Vote", false, false))),
-		*slack.NewSectionBlock(slack.NewTextBlockObject("mrkdwn", " • My Ishmael", false, false), nil, *slack.NewButtonBlockElement("un", "2", slack.NewTextBlockObject("plain_text", "Vote", false, false))),
-		*slack.NewSectionBlock(slack.NewTextBlockObject("mrkdwn", " • Paradise Built in Hell", false, false), nil, *slack.NewButtonBlockElement("un", "3", slack.NewTextBlockObject("plain_text", "Vote", false, false))),
-		*slack.NewSectionBlock(slack.NewTextBlockObject("mrkdwn", " ", false, false), nil, *slack.NewButtonBlockElement("un", "delete", slack.NewTextBlockObject("plain_text", "Delete poll", false, false))),
-		*slack.NewContextBlock("", slack.NewTextBlockObject("mrkdwn", "Created by <@marco>", false, false)),
-	}, blocks)
+	render, err := json.Marshal(blocks)
+	require.NoError(t, err)
+
+	assert.Equal(t, "[{\"type\":\"section\",\"text\":{\"type\":\"mrkdwn\",\"text\":\"*What's your favorite book?*\"}},{\"type\":\"divider\"},{\"type\":\"section\",\"text\":{\"type\":\"mrkdwn\",\"text\":\" • Ishmael\"},\"accessory\":{\"type\":\"button\",\"text\":{\"type\":\"plain_text\",\"text\":\"Vote\"},\"action_id\":\"un\",\"value\":\"0\",\"style\":\"primary\"}},{\"type\":\"context\",\"elements\":[{\"type\":\"image\",\"image_url\":\"https://avatar1.me\",\"alt_text\":\"User1\"},{\"type\":\"image\",\"image_url\":\"https://avatar2.me\",\"alt_text\":\"User2\"},{\"type\":\"image\",\"image_url\":\"https://avatar3.me\",\"alt_text\":\"User3\"},{\"type\":\"image\",\"image_url\":\"https://avatar4.me\",\"alt_text\":\"User4\"},{\"type\":\"image\",\"image_url\":\"https://avatar5.me\",\"alt_text\":\"User5\"},{\"type\":\"image\",\"image_url\":\"https://avatar6.me\",\"alt_text\":\"User6\"},{\"type\":\"image\",\"image_url\":\"https://avatar7.me\",\"alt_text\":\"User7\"},{\"type\":\"image\",\"image_url\":\"https://avatar8.me\",\"alt_text\":\"User8\"},{\"type\":\"image\",\"image_url\":\"https://avatar9.me\",\"alt_text\":\"User9\"},{\"type\":\"mrkdwn\",\"text\":\"`+ 1`\"}]},{\"type\":\"section\",\"text\":{\"type\":\"mrkdwn\",\"text\":\" • Story of B\"},\"accessory\":{\"type\":\"button\",\"text\":{\"type\":\"plain_text\",\"text\":\"Vote\"},\"action_id\":\"un\",\"value\":\"1\",\"style\":\"primary\"}},{\"type\":\"section\",\"text\":{\"type\":\"mrkdwn\",\"text\":\" • My Ishmael\"},\"accessory\":{\"type\":\"button\",\"text\":{\"type\":\"plain_text\",\"text\":\"Vote\"},\"action_id\":\"un\",\"value\":\"2\",\"style\":\"primary\"}},{\"type\":\"section\",\"text\":{\"type\":\"mrkdwn\",\"text\":\" • Paradise Built in Hell\"},\"accessory\":{\"type\":\"button\",\"text\":{\"type\":\"plain_text\",\"text\":\"Vote\"},\"action_id\":\"un\",\"value\":\"3\",\"style\":\"primary\"}},{\"type\":\"section\",\"text\":{\"type\":\"mrkdwn\",\"text\":\" \"},\"accessory\":{\"type\":\"button\",\"text\":{\"type\":\"plain_text\",\"text\":\"Delete poll\"},\"action_id\":\"un\",\"value\":\"delete\",\"style\":\"danger\"}},{\"type\":\"context\",\"elements\":[{\"type\":\"mrkdwn\",\"text\":\"Created by \\u003c@marco\\u003e\"}]}]", string(render))
 }
 
 func TestParsePollParams(t *testing.T) {
