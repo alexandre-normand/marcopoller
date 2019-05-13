@@ -1,3 +1,5 @@
+[![Build Status](https://travis-ci.org/alexandre-normand/marcopoller.svg?branch=master)](https://travis-ci.org/alexandre-normand/marcopoller)
+
 # Marco Poller
 
 ## Requirements
