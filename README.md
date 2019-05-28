@@ -44,9 +44,9 @@ thing a little differently, go ahead and look at Marco Poller.
 *   A way to store secrets (needed for the slack token and the slack signing secret)
 
 ## Integration
-The ready-to-deploy vanilla version of `Marco Poller` uses [berglas](https://github.com/GoogleCloudPlatform/berglas) to manage secrets. Refer to
-the [berglas gcloud functions example and documentation](https://github.com/GoogleCloudPlatform/berglas/tree/master/examples/cloudfunctions/go) on how to set 
-up berglas with gcloud functions.
+The ready-to-deploy vanilla version of `Marco Poller` uses [berglas](https://github.com/GoogleCloudPlatform/berglas) to manage secrets and lives at [github.com/alexandre-normand/marcopoller-vanilla](github.com/alexandre-normand/marcopoller-vanilla). 
+Refer to the [berglas gcloud functions example and documentation](https://github.com/GoogleCloudPlatform/berglas/tree/master/examples/cloudfunctions/go) on how to set 
+up berglas with gcloud functions. 
 
 ## Deploy
 ### Vanilla deployment using berglas managed secrets
@@ -54,7 +54,7 @@ up berglas with gcloud functions.
 * Make sure you've written the `slacktoken` and slack `signingsecret` using `berglas` and that you've granted the service account access to those. If you haven't done so already, 
 refer to the [berglas gcloud functions example and documentation](https://github.com/GoogleCloudPlatform/berglas/tree/master/examples/cloudfunctions/go) for how to do this.
 
-* Deploy using the [gcloud cli](https://cloud.google.com/sdk/gcloud/) commands:
+* Deploy the vanilla/berglas version using the [gcloud cli](https://cloud.google.com/sdk/gcloud/) commands from [github.com/alexandre-normand/marcopoller/berglas](berglas):
 
 ```
 gcloud functions deploy startPoll --entry-point StartPoll --runtime go111 --trigger-http --project $PROJECT_ID --service-account ${SA_EMAIL} --set-env-vars "PROJECT_ID=${PROJECT_ID},SLACK_TOKEN=berglas://${BUCKET_ID}/slacktoken,SIGNING_SECRET=berglas://${BUCKET_ID}/signingsecret"

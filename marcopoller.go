@@ -253,9 +253,20 @@ func NewWithOptions(opts ...Option) (mp *MarcoPoller, err error) {
 // by a function that knows how to fetch the slackToken and the slackSigningSecret secrets in order
 // to be deployable to gcloud
 //
-// Example (the provided berglas-backed wrapping implementation):
-//   func StartPollBerglas(w http.ResponseWriter, r *http.Request) {
-//  	 StartPoll(os.Getenv(slackTokenEnv), os.Getenv(signingSecretEnv), w, r)
+// Example (the companion berglas-backed wrapping implementation):
+//   var mp *marcopoller.MarcoPoller
+//
+//   func init() {
+// 		mpoller, err := marcopoller.New(os.Getenv(slackTokenEnv), os.Getenv(signingSecretEnv), os.Getenv(marcopoller.GCPProjectIDEnv))
+// 		if err != nil {
+// 			panic(fmt.Sprintf("Failed to initialize Marco Poller: %s", err.Error()))
+// 	 	}
+//
+// 	 	mp = mpoller
+//   }
+//
+//   func StartPoll(w http.ResponseWriter, r *http.Request) {
+//   	 mp.StartPoll(os.Getenv(slackTokenEnv), os.Getenv(signingSecretEnv), w, r)
 //   }
 func (mp *MarcoPoller) StartPoll(w http.ResponseWriter, r *http.Request) {
 	body, err := ioutil.ReadAll(r.Body)
@@ -410,9 +421,21 @@ func renderPoll(poll Poll, votes map[string][]Voter) (blocks []slack.Block) {
 // by a function that knows how to fetch the slackToken and the slackSigningSecret secrets in order
 // to be deployable to gcloud
 //
-// Example (the provided berglas-backed wrapping implementation):
-//   func RegisterVoteBerglas(w http.ResponseWriter, r *http.Request) {
-//   	 RegisterVote(os.Getenv(slackTokenEnv), os.Getenv(signingSecretEnv), w, r)
+// Example (the companion berglas-backed wrapping implementation):
+//
+//   var mp *marcopoller.MarcoPoller
+//
+//   func init() {
+// 		mpoller, err := marcopoller.New(os.Getenv(slackTokenEnv), os.Getenv(signingSecretEnv), os.Getenv(marcopoller.GCPProjectIDEnv))
+// 		if err != nil {
+// 			panic(fmt.Sprintf("Failed to initialize Marco Poller: %s", err.Error()))
+// 	 	}
+//
+// 	 	mp = mpoller
+//   }
+//
+//   func RegisterVote(w http.ResponseWriter, r *http.Request) {
+//   	 mp.RegisterVote(os.Getenv(slackTokenEnv), os.Getenv(signingSecretEnv), w, r)
 //   }
 func (mp *MarcoPoller) RegisterVote(w http.ResponseWriter, r *http.Request) {
 	body, err := ioutil.ReadAll(r.Body)
