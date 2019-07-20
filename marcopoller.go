@@ -9,6 +9,7 @@ import (
 	"github.com/nlopes/slack"
 	"github.com/pkg/errors"
 	"github.com/spf13/cast"
+	"google.golang.org/api/option"
 	"io/ioutil"
 	"log"
 	"net/http"
@@ -170,9 +171,9 @@ func OptionSlackVerifier(slackSigningSecret string) Option {
 }
 
 // OptionDatastore sets a datastoredb as the implementation of GlobalSiloStringStorer
-func OptionDatastore(datastoreProjectID string) Option {
+func OptionDatastore(datastoreProjectID string, gcloudClientOpts ...option.ClientOption) Option {
 	return func(mp *MarcoPoller) (err error) {
-		mp.storer, err = datastoredb.New(name, datastoreProjectID)
+		mp.storer, err = datastoredb.New(name, datastoreProjectID, gcloudClientOpts...)
 		if err != nil {
 			return errors.Wrapf(err, "Error initializing datastore persistence on project [%s]", datastoreProjectID)
 		}
@@ -214,8 +215,8 @@ func OptionVerifier(verifier Verifier) Option {
 }
 
 // New returns a new MarcoPoller with the default slack client and datastoredb implementations
-func New(slackToken string, slackSigningSecret string, datastoreProjectID string) (mp *MarcoPoller, err error) {
-	return NewWithOptions(OptionSlackVerifier(slackSigningSecret), OptionSlackClient(slackToken, cast.ToBool(os.Getenv(DebugEnabledEnv))), OptionDatastore(datastoreProjectID))
+func New(slackToken string, slackSigningSecret string, datastoreProjectID string, gcloudClientOpts ...option.ClientOption) (mp *MarcoPoller, err error) {
+	return NewWithOptions(OptionSlackVerifier(slackSigningSecret), OptionSlackClient(slackToken, cast.ToBool(os.Getenv(DebugEnabledEnv))), OptionDatastore(datastoreProjectID, gcloudClientOpts...))
 }
 
 // NewWithOptions returns a new MarcoPoller with specified options

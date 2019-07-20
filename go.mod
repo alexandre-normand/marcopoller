@@ -18,7 +18,7 @@ require (
 	golang.org/x/oauth2 v0.0.0-20190402181905-9f3314589c9a // indirect
 	golang.org/x/sys v0.0.0-20190418153312-f0ce4c0180be // indirect
 	golang.org/x/text v0.3.1-0.20181227161524-e6919f6577db // indirect
-	google.golang.org/api v0.3.2 // indirect
+	google.golang.org/api v0.3.2
 	google.golang.org/appengine v1.5.0 // indirect
 	google.golang.org/genproto v0.0.0-20190418145605-e7d98fc518a7 // indirect
 	google.golang.org/grpc v1.20.0 // indirect
