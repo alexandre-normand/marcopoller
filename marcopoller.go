@@ -3,7 +3,6 @@ package marcopoller
 import (
 	"encoding/json"
 	"fmt"
-	_ "github.com/GoogleCloudPlatform/berglas/pkg/auto"
 	"github.com/alexandre-normand/slackscot/store"
 	"github.com/alexandre-normand/slackscot/store/datastoredb"
 	"github.com/lithammer/shortuuid"
