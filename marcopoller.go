@@ -16,6 +16,7 @@ import (
 	"net/url"
 	"os"
 	"strings"
+	"time"
 	"unicode"
 )
 
@@ -93,10 +94,11 @@ type Voter struct {
 
 // MarcoPoller represents a Marco Poller instance
 type MarcoPoller struct {
-	storer     store.GlobalSiloStringStorer
-	messenger  Messenger
-	userFinder UserFinder
-	verifier   Verifier
+	storer       store.GlobalSiloStringStorer
+	messenger    Messenger
+	userFinder   UserFinder
+	verifier     Verifier
+	pollVerifier PollVerifier
 }
 
 // Messenger is implemented by any value that has the PostMessage, DeleteMessage, UpdateMessage methods
@@ -145,6 +147,39 @@ func (v *SlackVerifier) Verify(header http.Header, body []byte) (err error) {
 		return err
 	}
 
+	return nil
+}
+
+// PollVerifier is implemented by any value that has the Verify method. The PollVerifier
+// returns an error when verifying a poll that is expired (read-only)
+type PollVerifier interface {
+	Verify(pollID string, eventTime time.Time) (err error)
+}
+
+// ExpirationPollVerifier holds a poll verifier's validity period before it's marked as expired
+type ExpirationPollVerifier struct {
+	ValidityPeriod time.Duration
+}
+
+// Verify extracts the creation time from the pollID and returns an error if the event (current) time is past the
+// creation time + the poll's validity period
+func (epv ExpirationPollVerifier) Verify(pollID string, eventTime time.Time) (err error) {
+	creationTime := getPollCreationTime(pollID)
+
+	pollAge := eventTime.Sub(creationTime)
+	if pollAge.Seconds() > epv.ValidityPeriod.Seconds() {
+		return fmt.Errorf("the poll is expired and is now read-only")
+	}
+
+	return nil
+}
+
+// AlwaysValidPollVerifier acts as a default PollVerifier that always verifies a poll without error
+type AlwaysValidPollVerifier struct {
+}
+
+// Verify to a valid poll in all cases
+func (avpv AlwaysValidPollVerifier) Verify(pollID string, actionTime time.Time) (err error) {
 	return nil
 }
 
@@ -214,9 +249,17 @@ func OptionVerifier(verifier Verifier) Option {
 	}
 }
 
+// OptionVerifier provides a pollVerifier implementation to MarcoPoller
+func OptionPollVerifier(pollVerifier PollVerifier) Option {
+	return func(mp *MarcoPoller) (err error) {
+		mp.pollVerifier = pollVerifier
+		return nil
+	}
+}
+
 // New returns a new MarcoPoller with the default slack client and datastoredb implementations
 func New(slackToken string, slackSigningSecret string, datastoreProjectID string, gcloudClientOpts ...option.ClientOption) (mp *MarcoPoller, err error) {
-	return NewWithOptions(OptionSlackVerifier(slackSigningSecret), OptionSlackClient(slackToken, cast.ToBool(os.Getenv(DebugEnabledEnv))), OptionDatastore(datastoreProjectID, gcloudClientOpts...))
+	return NewWithOptions(OptionSlackVerifier(slackSigningSecret), OptionSlackClient(slackToken, cast.ToBool(os.Getenv(DebugEnabledEnv))), OptionDatastore(datastoreProjectID, gcloudClientOpts...), OptionPollVerifier(AlwaysValidPollVerifier{}))
 }
 
 // NewWithOptions returns a new MarcoPoller with specified options
@@ -244,6 +287,10 @@ func NewWithOptions(opts ...Option) (mp *MarcoPoller, err error) {
 
 	if mp.storer == nil {
 		return nil, fmt.Errorf("Storer is nil after applying all Options. Did you forget to set one?")
+	}
+
+	if mp.pollVerifier == nil {
+		return nil, fmt.Errorf("PollVerifier is nil after applying all Options. Did you forget to set one?")
 	}
 
 	return mp, err
@@ -302,15 +349,19 @@ func (mp *MarcoPoller) StartPoll(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	poll := Poll{ID: shortuuid.New(), MsgID: MsgIdentifier{ChannelID: channel, Timestamp: "TBD"}, Question: question, Options: options, Creator: creator}
+	poll := Poll{MsgID: MsgIdentifier{ChannelID: channel, Timestamp: "TBD"}, Question: question, Options: options, Creator: creator}
 	_, timestamp, err := mp.messenger.PostMessage(channel, slack.MsgOptionBlocks(renderPoll(poll, map[string][]Voter{})...))
 	if err != nil {
 		log.Printf("Error sending poll message: %v", err)
 		http.Error(w, err.Error(), 500)
 		return
 	}
-	// Tack on the timestamp to the message id
+
+	msgTime := slackTimestampToTime(timestamp)
+
+	// Tack on the timestamp to the message id and generate the poll identifier
 	poll.MsgID.Timestamp = timestamp
+	poll.ID = generatePollID(msgTime.Unix())
 
 	encodedPoll, err := encodePoll(poll)
 	if err != nil {
@@ -318,13 +369,41 @@ func (mp *MarcoPoller) StartPoll(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	log.Printf("Created poll [%s]", encodedPoll)
 	err = mp.storer.PutSiloString(poll.ID, pollInfoKey, encodedPoll)
 	if err != nil {
 		log.Printf("Error persisting poll [%s]", poll.ID)
 		http.Error(w, err.Error(), 500)
 		return
 	}
+}
+
+// slackTimestampToTime converts a slack timestamp string (something like "1556928600.008500") to a time.
+func slackTimestampToTime(slackTimestamp string) (parsedTime time.Time) {
+	timeAsFloat := cast.ToFloat64(slackTimestamp)
+	seconds := int64(timeAsFloat)
+	nanoSeconds := int64((timeAsFloat - float64(seconds)) * 1000000000)
+
+	return time.Unix(seconds, nanoSeconds)
+}
+
+// generatePollID generates a new poll identifier composed of the timestamp of the initial poll content posted to slack
+// and a unique identifier
+func generatePollID(timestamp int64) (pollID string) {
+	return fmt.Sprintf("%d-%s", timestamp, shortuuid.New())
+}
+
+// getPollCreationTime returns the poll creation time from the timestamp part of its identifier. To support legacy
+// polls that didn't have this format, a zero time is returned if the format doesn't include the creation time. This
+// implies that the poll is "old" and therefore might be treated as expired
+func getPollCreationTime(pollID string) (creationTime time.Time) {
+	idParts := strings.Split(pollID, "-")
+	if len(idParts) <= 1 {
+		return time.Unix(0, 0)
+	}
+
+	creationTimeSeconds := cast.ToInt64(idParts[0])
+
+	return time.Unix(creationTimeSeconds, 0)
 }
 
 // parseNewPollRequest parses a new poll request and returns the pollText, the creator and the channel
@@ -469,6 +548,22 @@ func (mp *MarcoPoller) RegisterVote(w http.ResponseWriter, r *http.Request) {
 	}
 
 	pollID := pollID(callback)
+
+	// Verify the validity of the poll before we proceed with handling the vote
+	err = mp.pollVerifier.Verify(pollID, actionTime(callback))
+
+	// Poll is expired/invalid so handle new votes by telling users and poll deletions by deleting the message
+	if err != nil {
+		_, err = mp.messenger.PostEphemeral(callback.Channel.ID, callback.User.ID, slack.MsgOptionText(fmt.Sprintf(":warning: Sorry, %s", err.Error()), false))
+		if err != nil {
+			log.Printf("Error sending message: %v", err)
+			http.Error(w, err.Error(), 500)
+			return
+		}
+
+		return
+	}
+
 	encodedPoll, err := mp.storer.GetSiloString(pollID, pollInfoKey)
 	if err != nil {
 		log.Printf("Error getting existing poll info for id [%s]: %v", pollID, err)
@@ -486,6 +581,14 @@ func (mp *MarcoPoller) RegisterVote(w http.ResponseWriter, r *http.Request) {
 	vote := voteValue(callback)
 	if vote == deleteValue {
 		if poll.Creator == callback.User.ID {
+			// Delete poll and votes from storage
+			err := mp.deletePoll(pollID)
+			if err != nil {
+				log.Printf("Error deleting poll [%s]: %s", pollID, err.Error())
+				http.Error(w, err.Error(), 500)
+				return
+			}
+
 			_, _, err = mp.messenger.DeleteMessage(poll.MsgID.ChannelID, poll.MsgID.Timestamp)
 			if err != nil {
 				log.Printf("Error deleting message: %v", err)
@@ -559,6 +662,23 @@ func (mp *MarcoPoller) listVotes(pollID string) (votes map[string][]Voter, err e
 	return votes, nil
 }
 
+// deletePoll removes a poll and all of its associated data from storage
+func (mp *MarcoPoller) deletePoll(pollID string) (err error) {
+	values, err := mp.storer.ScanSilo(pollID)
+	if err != nil {
+		return err
+	}
+
+	for k, _ := range values {
+		// If we see an error, we keep it but still continue deleting entries
+		if err == nil {
+			err = mp.storer.DeleteSiloString(pollID, k)
+		}
+	}
+
+	return err
+}
+
 // decodePoll decodes a poll from a encoded string value.
 func decodePoll(encoded string) (poll Poll, err error) {
 	err = json.Unmarshal([]byte(encoded), &poll)
@@ -574,6 +694,13 @@ func voteValue(callback Callback) (vote string) {
 // pollID returns the poll ID in a given callback
 func pollID(callback Callback) (pollID string) {
 	return callback.Actions[0].ActionID
+}
+
+// actionTime returns the action time in a given callback
+func actionTime(callback Callback) (actionTime time.Time) {
+	timestamp := callback.Actions[0].ActionTs
+
+	return slackTimestampToTime(timestamp)
 }
 
 // parsePollParams parses poll parameters. The expected format is: "Some question" "Option 1" "Option 2" "Option 3"
@@ -622,4 +749,28 @@ func parsePollParams(rawPoll string) (pollQuestion string, options []string, err
 	}
 
 	return params[0], params[1:], nil
+}
+
+// DeleteExpiredPolls removes all poll data (content and associated votes) without deleting
+// the slack message holding the most recent snapshot of the poll. The deletionTime should
+// be the current time except for synthetic scenarios like tests
+func (mp *MarcoPoller) DeleteExpiredPolls(deletionTime time.Time) (count int, err error) {
+	count = 0
+	polls, err := mp.storer.GlobalScan()
+	if err != nil {
+		return 0, err
+	}
+
+	for pollID, _ := range polls {
+		if mp.pollVerifier.Verify(pollID, deletionTime) != nil {
+			err := mp.deletePoll(pollID)
+			if err != nil {
+				return count, err
+			}
+
+			count++
+		}
+	}
+
+	return count, nil
 }
