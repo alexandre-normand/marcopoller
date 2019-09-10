@@ -374,6 +374,7 @@ func (mp *MarcoPoller) StartPoll(w http.ResponseWriter, r *http.Request) {
 
 	encodedPoll, err := encodePoll(poll)
 	if err != nil {
+		log.Printf("Error encoding poll: %e", err.Error())
 		http.Error(w, err.Error(), 500)
 		return
 	}
