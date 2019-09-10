@@ -563,7 +563,7 @@ func (mp *MarcoPoller) RegisterVote(w http.ResponseWriter, r *http.Request) {
 
 	// Poll is expired/invalid so handle new votes by telling users and poll deletions by deleting the message
 	if err != nil {
-		mp.debugf("Invalid vote from user [%s] for poll [%s] with action callback [%v]", callback.User.ID, pollID, callback)
+		mp.debugf("Invalid vote for poll [%s] with action callback [%v]", pollID, callback)
 
 		_, err = mp.messenger.PostEphemeral(callback.Channel.ID, callback.User.ID, slack.MsgOptionText(fmt.Sprintf(":warning: Sorry, %s", err.Error()), false))
 		if err != nil {
