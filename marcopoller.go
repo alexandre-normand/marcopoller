@@ -358,7 +358,8 @@ func (mp *MarcoPoller) StartPoll(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	poll := Poll{MsgID: MsgIdentifier{ChannelID: channel, Timestamp: "TBD"}, Question: question, Options: options, Creator: creator}
+	pollCreationTime := time.Now()
+	poll := Poll{ID: generatePollID(pollCreationTime.Unix()), MsgID: MsgIdentifier{ChannelID: channel, Timestamp: "TBD"}, Question: question, Options: options, Creator: creator}
 	_, timestamp, err := mp.messenger.PostMessage(channel, slack.MsgOptionBlocks(renderPoll(poll, map[string][]Voter{})...))
 	if err != nil {
 		log.Printf("Error sending poll message: %v", err)
@@ -366,15 +367,12 @@ func (mp *MarcoPoller) StartPoll(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	msgTime := slackTimestampToTime(timestamp)
-
 	// Tack on the timestamp to the message id and generate the poll identifier
 	poll.MsgID.Timestamp = timestamp
-	poll.ID = generatePollID(msgTime.Unix())
 
 	encodedPoll, err := encodePoll(poll)
 	if err != nil {
-		log.Printf("Error encoding poll: %e", err.Error())
+		log.Printf("Error encoding poll: %s", err.Error())
 		http.Error(w, err.Error(), 500)
 		return
 	}
