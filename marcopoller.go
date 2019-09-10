@@ -99,6 +99,7 @@ type MarcoPoller struct {
 	userFinder   UserFinder
 	verifier     Verifier
 	pollVerifier PollVerifier
+	debug        bool
 }
 
 // Messenger is implemented by any value that has the PostMessage, DeleteMessage, UpdateMessage methods
@@ -253,6 +254,14 @@ func OptionVerifier(verifier Verifier) Option {
 func OptionPollVerifier(pollVerifier PollVerifier) Option {
 	return func(mp *MarcoPoller) (err error) {
 		mp.pollVerifier = pollVerifier
+		return nil
+	}
+}
+
+// OptionDebug enables debug logging
+func OptionDebug(debug bool) Option {
+	return func(mp *MarcoPoller) (err error) {
+		mp.debug = debug
 		return nil
 	}
 }
@@ -554,6 +563,8 @@ func (mp *MarcoPoller) RegisterVote(w http.ResponseWriter, r *http.Request) {
 
 	// Poll is expired/invalid so handle new votes by telling users and poll deletions by deleting the message
 	if err != nil {
+		mp.debugf("Invalid vote from user [%s] for poll [%s] with action callback [%v]", callback.User.ID, pollID, callback)
+
 		_, err = mp.messenger.PostEphemeral(callback.Channel.ID, callback.User.ID, slack.MsgOptionText(fmt.Sprintf(":warning: Sorry, %s", err.Error()), false))
 		if err != nil {
 			log.Printf("Error sending message: %v", err)
@@ -749,6 +760,13 @@ func parsePollParams(rawPoll string) (pollQuestion string, options []string, err
 	}
 
 	return params[0], params[1:], nil
+}
+
+// debugf logs a debug line after checking if the configuration is in debug mode
+func (mp *MarcoPoller) debugf(format string, v ...interface{}) {
+	if mp.debug {
+		log.Printf(format, v...)
+	}
 }
 
 // DeleteExpiredPolls removes all poll data (content and associated votes) without deleting

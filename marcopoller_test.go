@@ -589,6 +589,48 @@ func TestValidNewVote(t *testing.T) {
 	assert.Equal(t, 200, resp.StatusCode)
 }
 
+func TestValidNewVoteOnValidPoll(t *testing.T) {
+	callback := marcopoller.Callback{User: slack.User{ID: "marco"}, Actions: []marcopoller.Action{marcopoller.Action{ActionID: "1566576557-poll1", Value: "1", ActionTs: "1566576616.009918"}}}
+	callback.Channel.ID = "myLittleChannel"
+
+	payload, _ := json.Marshal(callback)
+	body := fmt.Sprintf("payload=%s", payload)
+
+	r := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
+	r.Header.Add("X-Slack-Signature", "8e9fe980e2b36c7a7accab28bd8e315667cf9122c3f01c3b7230bb9587627ccb")
+	r.Header.Add("X-Slack-Request-Timestamp", "1531431954")
+
+	messenger := &Messenger{}
+	messenger.On("UpdateMessage", "myLittleChannel", "1566576557.354007", mock.Anything).Return("CID", "1566576557.354007", "", nil)
+	defer messenger.AssertExpectations(t)
+
+	userFinder := &UserFinder{}
+	defer userFinder.AssertExpectations(t)
+
+	storer := &mocks.Storer{}
+	storer.On("GetSiloString", "1566576557-poll1", "pollInfo").Return("{\"id\":\"1566576557-poll1\",\"msgID\":{\"channelID\":\"myLittleChannel\",\"timestamp\":\"1566576557.354007\"},\"question\":\"To do or not to do?\",\"options\":[\"Do\",\"Not Do\"],\"creator\":\"UID\"}", nil)
+	storer.On("ScanSilo", "1566576557-poll1").Return(map[string]string{"pollInfo": "{\"id\":\"1566576557-poll1\",\"msgID\":{\"channelID\":\"myLittleChannel\",\"timestamp\":\"1566576557.354007\"},\"question\":\"To do or not to do?\",\"options\":[\"Do\",\"Not Do\"],\"creator\":\"UID\"}"}, nil)
+	storer.On("PutSiloString", "1566576557-poll1", "marco", "1").Return(nil)
+	defer storer.AssertExpectations(t)
+
+	verifier := &Verifier{}
+	verifier.On("Verify", r.Header, []byte(body)).Return(nil)
+	defer verifier.AssertExpectations(t)
+
+	mp, err := marcopoller.NewWithOptions(marcopoller.OptionVerifier(verifier), marcopoller.OptionMessenger(messenger), marcopoller.OptionUserFinder(userFinder), marcopoller.OptionStorer(storer), marcopoller.OptionPollVerifier(marcopoller.ExpirationPollVerifier{ValidityPeriod: time.Duration(1) * time.Hour}))
+	require.NoError(t, err)
+
+	w := httptest.NewRecorder()
+
+	mp.RegisterVote(w, r)
+
+	resp := w.Result()
+	rbody, _ := ioutil.ReadAll(resp.Body)
+
+	assert.Equal(t, "", string(rbody))
+	assert.Equal(t, 200, resp.StatusCode)
+}
+
 func TestValidNewVoteFailureToLoadPoll(t *testing.T) {
 	callback := marcopoller.Callback{User: slack.User{ID: "marco"}, Actions: []marcopoller.Action{marcopoller.Action{ActionID: "1566576557-poll1", Value: "1"}}}
 	callback.Channel.ID = "myLittleChannel"
