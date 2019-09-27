@@ -739,11 +739,9 @@ func parsePollParams(rawPoll string) (pollQuestion string, options []string, err
 
 	// Sacrifice some fidelity for convenience by normalizing smart quotes to standard quotes before parsing so that people
 	// having smart quoting enabled don't feel frustrated when the poll doesn't render correctly
-	normalizedPoll := rawPoll
-	normalizedPoll = strings.ReplaceAll(normalizedPoll, "“", "\"")
-	normalizedPoll = strings.ReplaceAll(normalizedPoll, "”", "\"")
+	normalizedPollReq := normalizePollRequest(rawPoll)
 
-	for _, r := range normalizedPoll {
+	for _, r := range normalizedPollReq {
 		switch {
 		case r == '"' && !inQuote:
 			{
@@ -783,6 +781,17 @@ func parsePollParams(rawPoll string) (pollQuestion string, options []string, err
 	}
 
 	return params[0], params[1:], nil
+}
+
+// normalizePollRequest applies a few operation to normalize a polling request prior to parsing:
+//  * Replace opening curly quotes by the standard quote character
+//  * Replace closing curly quotes by the standard quote character
+func normalizePollRequest(rawRequest string) (normalizedReq string) {
+	normalizedPoll := rawRequest
+	normalizedPoll = strings.ReplaceAll(normalizedPoll, "“", "\"")
+	normalizedPoll = strings.ReplaceAll(normalizedPoll, "”", "\"")
+
+	return normalizedPoll
 }
 
 // debugf logs a debug line after checking if the configuration is in debug mode
