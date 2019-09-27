@@ -380,8 +380,17 @@ func (mp *MarcoPoller) StartPoll(w http.ResponseWriter, r *http.Request) {
 	poll := Poll{ID: generatePollID(pollCreationTime.Unix()), MsgID: MsgIdentifier{ChannelID: channel, Timestamp: "TBD"}, Question: question, Options: options, Creator: creator}
 	_, timestamp, err := mp.messenger.PostMessage(channel, slack.MsgOptionAsUser(false), slack.MsgOptionBlocks(renderPoll(poll, map[string][]Voter{})...))
 	if err != nil {
-		log.Printf("Error sending poll message: %v", err)
-		http.Error(w, err.Error(), 500)
+		if err.Error() == "channel_not_found" {
+			_, err = mp.messenger.PostEphemeral(channel, creator, slack.MsgOptionText("I don't have access to this conversation. Try adding me to the apps before creating a poll!", false))
+			if err != nil {
+				log.Printf("Error sending message: %v", err)
+				http.Error(w, err.Error(), 500)
+			}
+		} else {
+			log.Printf("Error sending poll message: %v", err)
+			http.Error(w, err.Error(), 500)
+		}
+
 		return
 	}
 
