@@ -197,6 +197,24 @@ func OptionSlackClient(slackToken string, debug bool) Option {
 	}
 }
 
+// OptionSlackMessenger sets a nlopes/slack.Client as the implementation of Messenger
+func OptionSlackMessenger(token string, debug bool) Option {
+	return func(mp *MarcoPoller) (err error) {
+		sc := slack.New(token, slack.OptionDebug(debug))
+		mp.messenger = sc
+		return nil
+	}
+}
+
+// OptionSlackUserFinder sets a nlopes/slack.Client as the implementation of UserFinder
+func OptionSlackUserFinder(token string, debug bool) Option {
+	return func(mp *MarcoPoller) (err error) {
+		sc := slack.New(token, slack.OptionDebug(debug))
+		mp.userFinder = sc
+		return nil
+	}
+}
+
 // OptionSlackVerifier sets a nlopes/slack.Client as the implementation of Messenger
 func OptionSlackVerifier(slackSigningSecret string) Option {
 	return func(mp *MarcoPoller) (err error) {
