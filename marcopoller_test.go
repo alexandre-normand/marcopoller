@@ -25,7 +25,7 @@ func TestValidNewPoll(t *testing.T) {
 	r.Header.Add("X-Slack-Request-Timestamp", "1531431954")
 
 	messenger := &Messenger{}
-	messenger.On("PostMessage", "CID", mock.Anything).Return("CID", "1566576557.354007", nil)
+	messenger.On("PostMessage", "CID", mock.Anything, mock.Anything).Return("CID", "1566576557.354007", nil)
 	defer messenger.AssertExpectations(t)
 
 	userFinder := &UserFinder{}
@@ -56,6 +56,44 @@ func TestValidNewPoll(t *testing.T) {
 	assert.Equal(t, 200, resp.StatusCode)
 }
 
+func TestPollWithCurlyQuotes(t *testing.T) {
+	body := "token=sometoken&team_id=TEAMID3&team_domain=test-workspace&channel_id=CID&channel_name=testchannel&user_id=UID&user_name=marco&command=%2Fpoll&text=%E2%80%9CPolling%20is%20great%3F%E2%80%9D%20%E2%80%9Cyes%E2%80%9D%20%E2%80%9Cno%E2%80%9D&response_url=https%3A%2F%2Fhooks.slack.com%2Fcommands%2Fbla%2Fbleh%2Fblo&trigger_id=someTriggerID"
+	r := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
+	r.Header.Add("X-Slack-Signature", "8e9fe980e2b36c7a7accab28bd8e315667cf9122c3f01c3b7230bb9587627ccb")
+	r.Header.Add("X-Slack-Request-Timestamp", "1531431954")
+
+	messenger := &Messenger{}
+	messenger.On("PostMessage", "CID", mock.Anything, mock.Anything).Return("CID", "1566576557.354007", nil)
+	defer messenger.AssertExpectations(t)
+
+	userFinder := &UserFinder{}
+	defer userFinder.AssertExpectations(t)
+
+	storer := &mocks.Storer{}
+	storer.On("PutSiloString", mock.Anything, "pollInfo", mock.MatchedBy(func(val string) bool {
+		match, _ := regexp.MatchString("{\"id\":\".*\",\"msgID\":{\"channelID\":\"CID\",\"timestamp\":\"1566576557.354007\"},\"question\":\"Polling is great\\?\",\"options\":\\[\"yes\",\"no\"\\],\"creator\":\"UID\"}", val)
+		return match
+	})).Return(nil)
+	defer storer.AssertExpectations(t)
+
+	verifier := &Verifier{}
+	verifier.On("Verify", r.Header, []byte(body)).Return(nil)
+	defer verifier.AssertExpectations(t)
+
+	mp, err := marcopoller.NewWithOptions(marcopoller.OptionVerifier(verifier), marcopoller.OptionMessenger(messenger), marcopoller.OptionUserFinder(userFinder), marcopoller.OptionStorer(storer), marcopoller.OptionPollVerifier(marcopoller.AlwaysValidPollVerifier{}))
+	require.NoError(t, err)
+
+	w := httptest.NewRecorder()
+
+	mp.StartPoll(w, r)
+
+	resp := w.Result()
+	rbody, _ := ioutil.ReadAll(resp.Body)
+
+	assert.Equal(t, "", string(rbody))
+	assert.Equal(t, 200, resp.StatusCode)
+}
+
 func TestValidNewPollFailureToSendSlackMsg(t *testing.T) {
 	body := "token=sometoken&team_id=TEAMID3&team_domain=test-workspace&channel_id=CID&channel_name=testchannel&user_id=UID&user_name=marco&command=%2Fpoll&text=%22To%20do%20or%20not%20to%20do%3F%22%20%22Do%22%20%22Not%20Do%22&response_url=https%3A%2F%2Fhooks.slack.com%2Fcommands%2Fbla%2Fbleh%2Fblo&trigger_id=someTriggerID"
 	r := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
@@ -63,7 +101,7 @@ func TestValidNewPollFailureToSendSlackMsg(t *testing.T) {
 	r.Header.Add("X-Slack-Request-Timestamp", "1531431954")
 
 	messenger := &Messenger{}
-	messenger.On("PostMessage", "CID", mock.Anything).Return("", "", fmt.Errorf("failed to send"))
+	messenger.On("PostMessage", "CID", mock.Anything, mock.Anything).Return("", "", fmt.Errorf("failed to send"))
 	defer messenger.AssertExpectations(t)
 
 	userFinder := &UserFinder{}
@@ -97,7 +135,7 @@ func TestValidNewPollFailureToPersistPollInfo(t *testing.T) {
 	r.Header.Add("X-Slack-Request-Timestamp", "1531431954")
 
 	messenger := &Messenger{}
-	messenger.On("PostMessage", "CID", mock.Anything).Return("CID", "1566576557.354007", nil)
+	messenger.On("PostMessage", "CID", mock.Anything, mock.Anything).Return("CID", "1566576557.354007", nil)
 	defer messenger.AssertExpectations(t)
 
 	userFinder := &UserFinder{}
