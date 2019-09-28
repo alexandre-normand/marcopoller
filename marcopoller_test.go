@@ -136,7 +136,6 @@ func TestNewPollWithChannelNotFound(t *testing.T) {
 
 	messenger := &Messenger{}
 	messenger.On("PostMessage", "CID", mock.Anything, mock.Anything).Return("", "", fmt.Errorf("channel_not_found"))
-	messenger.On("PostEphemeral", "CID", "UID", mock.Anything).Return("", nil)
 	defer messenger.AssertExpectations(t)
 
 	userFinder := &UserFinder{}
@@ -157,7 +156,9 @@ func TestNewPollWithChannelNotFound(t *testing.T) {
 	mp.StartPoll(w, r)
 
 	resp := w.Result()
+	rbody, _ := ioutil.ReadAll(resp.Body)
 
+	assert.Equal(t, "{ \"response_type\": \"ephemeral\", \"text\": \"I don't have access to this conversation. Try adding me to the apps before creating a poll!\" }", string(rbody))
 	assert.Equal(t, 200, resp.StatusCode)
 }
 

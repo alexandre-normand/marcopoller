@@ -381,17 +381,13 @@ func (mp *MarcoPoller) StartPoll(w http.ResponseWriter, r *http.Request) {
 	_, timestamp, err := mp.messenger.PostMessage(channel, slack.MsgOptionAsUser(false), slack.MsgOptionBlocks(renderPoll(poll, map[string][]Voter{})...))
 	if err != nil {
 		if err.Error() == "channel_not_found" {
-			_, err = mp.messenger.PostEphemeral(channel, creator, slack.MsgOptionText("I don't have access to this conversation. Try adding me to the apps before creating a poll!", false))
-			if err != nil {
-				log.Printf("Error sending message: %v", err)
-				http.Error(w, err.Error(), 500)
-			}
+			fmt.Fprintf(w, "{ \"response_type\": \"ephemeral\", \"text\": \"I don't have access to this conversation. Try adding me to the apps before creating a poll!\" }")
+			return
 		} else {
 			log.Printf("Error sending poll message: %v", err)
 			http.Error(w, err.Error(), 500)
+			return
 		}
-
-		return
 	}
 
 	// Tack on the timestamp to the message id and generate the poll identifier
@@ -797,8 +793,8 @@ func parsePollParams(rawPoll string) (pollQuestion string, options []string, err
 //  * Replace closing curly quotes by the standard quote character
 func normalizePollRequest(rawRequest string) (normalizedReq string) {
 	normalizedPoll := rawRequest
-	normalizedPoll = strings.ReplaceAll(normalizedPoll, "“", "\"")
-	normalizedPoll = strings.ReplaceAll(normalizedPoll, "”", "\"")
+	normalizedPoll = strings.Replace(normalizedPoll, "“", "\"", -1)
+	normalizedPoll = strings.Replace(normalizedPoll, "”", "\"", -1)
 
 	return normalizedPoll
 }
