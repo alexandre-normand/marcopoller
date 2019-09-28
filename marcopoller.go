@@ -381,6 +381,7 @@ func (mp *MarcoPoller) StartPoll(w http.ResponseWriter, r *http.Request) {
 	_, timestamp, err := mp.messenger.PostMessage(channel, slack.MsgOptionAsUser(false), slack.MsgOptionBlocks(renderPoll(poll, map[string][]Voter{})...))
 	if err != nil {
 		if err.Error() == "channel_not_found" {
+			w.Header().Set("Content-type", "application/json")
 			fmt.Fprintf(w, "{ \"response_type\": \"ephemeral\", \"text\": \"I don't have access to this conversation. Try adding me to the apps before creating a poll!\" }")
 			return
 		} else {
