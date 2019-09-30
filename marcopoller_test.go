@@ -19,7 +19,15 @@ import (
 )
 
 func TestValidNewPoll(t *testing.T) {
-	body := "token=sometoken&team_id=TEAMID3&team_domain=test-workspace&channel_id=CID&channel_name=testchannel&user_id=UID&user_name=marco&command=%2Fpoll&text=%22To%20do%20or%20not%20to%20do%3F%22%20%22Do%22%20%22Not%20Do%22&response_url=https%3A%2F%2Fhooks.slack.com%2Fcommands%2Fbla%2Fbleh%2Fblo&trigger_id=someTriggerID"
+	slackRequest := ""
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		reqBody, _ := ioutil.ReadAll(r.Body)
+		slackRequest = string(reqBody)
+		fmt.Fprintln(w, "OK")
+	}))
+	defer server.Close()
+
+	body := fmt.Sprintf("token=sometoken&team_id=TEAMID3&team_domain=test-workspace&channel_id=CID&channel_name=testchannel&user_id=UID&user_name=marco&command=%%2Fpoll&text=%%22To%%20do%%20or%%20not%%20to%%20do%%3F%%22%%20%%22Do%%22%%20%%22Not%%20Do%%22&response_url=%s&trigger_id=someTriggerID", server.URL)
 	r := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
 	r.Header.Add("X-Slack-Signature", "8e9fe980e2b36c7a7accab28bd8e315667cf9122c3f01c3b7230bb9587627ccb")
 	r.Header.Add("X-Slack-Request-Timestamp", "1531431954")
@@ -46,14 +54,21 @@ func TestValidNewPoll(t *testing.T) {
 	mp.StartPoll(w, r)
 
 	resp := w.Result()
-	rbody, _ := ioutil.ReadAll(resp.Body)
 
-	assert.Regexp(t, regexp.MustCompile("\\{\"response_type\":\"in_channel\",\"blocks\":\\[\\{\"type\":\"section\",\"text\":\\{\"type\":\"mrkdwn\",\"text\":\"\\*To do or not to do\\?\\*\"\\}\\},\\{\"type\":\"divider\"\\},\\{\"type\":\"section\",\"text\":\\{\"type\":\"mrkdwn\",\"text\":\" • Do\"\\},\"accessory\":\\{\"type\":\"button\",\"text\":\\{\"type\":\"plain_text\",\"text\":\"Vote\"\\},\"action_id\":\".*\",\"value\":\"0\",\"style\":\"primary\"\\}\\},\\{\"type\":\"section\",\"text\":\\{\"type\":\"mrkdwn\",\"text\":\" • Not Do\"\\},\"accessory\":\\{\"type\":\"button\",\"text\":\\{\"type\":\"plain_text\",\"text\":\"Vote\"\\},\"action_id\":\".*\",\"value\":\"1\",\"style\":\"primary\"\\}\\},\\{\"type\":\"section\",\"text\":\\{\"type\":\"mrkdwn\",\"text\":\" \"\\},\"accessory\":\\{\"type\":\"button\",\"text\":\\{\"type\":\"plain_text\",\"text\":\"Delete poll\"\\},\"action_id\":\".*\",\"value\":\"delete\",\"style\":\"danger\"\\}\\},\\{\"type\":\"context\",\"elements\":\\[\\{\"type\":\"mrkdwn\",\"text\":\"Created by \\\\u003c@UID\\\\u003e\"\\}\\]\\}\\]\\}"), string(rbody))
 	assert.Equal(t, 200, resp.StatusCode)
+	assert.Regexp(t, regexp.MustCompile("\\{\"response_type\":\"in_channel\",\"blocks\":\\[\\{\"type\":\"section\",\"text\":\\{\"type\":\"mrkdwn\",\"text\":\"\\*To do or not to do\\?\\*\"\\}\\},\\{\"type\":\"divider\"\\},\\{\"type\":\"section\",\"text\":\\{\"type\":\"mrkdwn\",\"text\":\" • Do\"\\},\"accessory\":\\{\"type\":\"button\",\"text\":\\{\"type\":\"plain_text\",\"text\":\"Vote\"\\},\"action_id\":\".*\",\"value\":\"0\",\"style\":\"primary\"\\}\\},\\{\"type\":\"section\",\"text\":\\{\"type\":\"mrkdwn\",\"text\":\" • Not Do\"\\},\"accessory\":\\{\"type\":\"button\",\"text\":\\{\"type\":\"plain_text\",\"text\":\"Vote\"\\},\"action_id\":\".*\",\"value\":\"1\",\"style\":\"primary\"\\}\\},\\{\"type\":\"section\",\"text\":\\{\"type\":\"mrkdwn\",\"text\":\" \"\\},\"accessory\":\\{\"type\":\"button\",\"text\":\\{\"type\":\"plain_text\",\"text\":\"Delete poll\"\\},\"action_id\":\".*\",\"value\":\"delete\",\"style\":\"danger\"\\}\\},\\{\"type\":\"context\",\"elements\":\\[\\{\"type\":\"mrkdwn\",\"text\":\"Created by \\\\u003c@UID\\\\u003e\"\\}\\]\\}\\]\\}"), slackRequest)
 }
 
 func TestPollWithCurlyQuotes(t *testing.T) {
-	body := "token=sometoken&team_id=TEAMID3&team_domain=test-workspace&channel_id=CID&channel_name=testchannel&user_id=UID&user_name=marco&command=%2Fpoll&text=%22To%20do%20or%20not%20to%20do%3F%22%20%22Do%22%20%22Not%20Do%22&response_url=https%3A%2F%2Fhooks.slack.com%2Fcommands%2Fbla%2Fbleh%2Fblo&trigger_id=someTriggerID"
+	slackRequest := ""
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		reqBody, _ := ioutil.ReadAll(r.Body)
+		slackRequest = string(reqBody)
+		fmt.Fprintln(w, "OK")
+	}))
+	defer server.Close()
+
+	body := fmt.Sprintf("token=sometoken&team_id=TEAMID3&team_domain=test-workspace&channel_id=CID&channel_name=testchannel&user_id=UID&user_name=marco&command=%%2Fpoll&text=%%22To%%20do%%20or%%20not%%20to%%20do%%3F%%22%%20%%22Do%%22%%20%%22Not%%20Do%%22&response_url=%s&trigger_id=someTriggerID", server.URL)
 	r := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
 	r.Header.Add("X-Slack-Signature", "8e9fe980e2b36c7a7accab28bd8e315667cf9122c3f01c3b7230bb9587627ccb")
 	r.Header.Add("X-Slack-Request-Timestamp", "1531431954")
@@ -80,9 +95,8 @@ func TestPollWithCurlyQuotes(t *testing.T) {
 	mp.StartPoll(w, r)
 
 	resp := w.Result()
-	rbody, _ := ioutil.ReadAll(resp.Body)
 
-	assert.Regexp(t, regexp.MustCompile("\\{\"response_type\":\"in_channel\",\"blocks\":\\[\\{\"type\":\"section\",\"text\":\\{\"type\":\"mrkdwn\",\"text\":\"\\*To do or not to do\\?\\*\"\\}\\},\\{\"type\":\"divider\"\\},\\{\"type\":\"section\",\"text\":\\{\"type\":\"mrkdwn\",\"text\":\" • Do\"\\},\"accessory\":\\{\"type\":\"button\",\"text\":\\{\"type\":\"plain_text\",\"text\":\"Vote\"\\},\"action_id\":\".*\",\"value\":\"0\",\"style\":\"primary\"\\}\\},\\{\"type\":\"section\",\"text\":\\{\"type\":\"mrkdwn\",\"text\":\" • Not Do\"\\},\"accessory\":\\{\"type\":\"button\",\"text\":\\{\"type\":\"plain_text\",\"text\":\"Vote\"\\},\"action_id\":\".*\",\"value\":\"1\",\"style\":\"primary\"\\}\\},\\{\"type\":\"section\",\"text\":\\{\"type\":\"mrkdwn\",\"text\":\" \"\\},\"accessory\":\\{\"type\":\"button\",\"text\":\\{\"type\":\"plain_text\",\"text\":\"Delete poll\"\\},\"action_id\":\".*\",\"value\":\"delete\",\"style\":\"danger\"\\}\\},\\{\"type\":\"context\",\"elements\":\\[\\{\"type\":\"mrkdwn\",\"text\":\"Created by \\\\u003c@UID\\\\u003e\"\\}\\]\\}\\]\\}"), string(rbody))
+	assert.Regexp(t, regexp.MustCompile("\\{\"response_type\":\"in_channel\",\"blocks\":\\[\\{\"type\":\"section\",\"text\":\\{\"type\":\"mrkdwn\",\"text\":\"\\*To do or not to do\\?\\*\"\\}\\},\\{\"type\":\"divider\"\\},\\{\"type\":\"section\",\"text\":\\{\"type\":\"mrkdwn\",\"text\":\" • Do\"\\},\"accessory\":\\{\"type\":\"button\",\"text\":\\{\"type\":\"plain_text\",\"text\":\"Vote\"\\},\"action_id\":\".*\",\"value\":\"0\",\"style\":\"primary\"\\}\\},\\{\"type\":\"section\",\"text\":\\{\"type\":\"mrkdwn\",\"text\":\" • Not Do\"\\},\"accessory\":\\{\"type\":\"button\",\"text\":\\{\"type\":\"plain_text\",\"text\":\"Vote\"\\},\"action_id\":\".*\",\"value\":\"1\",\"style\":\"primary\"\\}\\},\\{\"type\":\"section\",\"text\":\\{\"type\":\"mrkdwn\",\"text\":\" \"\\},\"accessory\":\\{\"type\":\"button\",\"text\":\\{\"type\":\"plain_text\",\"text\":\"Delete poll\"\\},\"action_id\":\".*\",\"value\":\"delete\",\"style\":\"danger\"\\}\\},\\{\"type\":\"context\",\"elements\":\\[\\{\"type\":\"mrkdwn\",\"text\":\"Created by \\\\u003c@UID\\\\u003e\"\\}\\]\\}\\]\\}"), slackRequest)
 	assert.Equal(t, 200, resp.StatusCode)
 }
 
@@ -181,7 +195,15 @@ func TestInvalidNewVotePayload(t *testing.T) {
 }
 
 func TestNewPollWithWrongUsage(t *testing.T) {
-	body := "token=sometoken&team_id=TEAMID3&team_domain=test-workspace&channel_id=CID&channel_name=testchannel&user_id=marco&user_name=marcopoller&command=%2Fpoll&text=%22To%20do%20or%20not%20to%20do%3F%22&response_url=https%3A%2F%2Fhooks.slack.com%2Fcommands%2Fbla%2Fbleh%2Fblo&trigger_id=someTriggerID"
+	slackRequest := ""
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		reqBody, _ := ioutil.ReadAll(r.Body)
+		slackRequest = string(reqBody)
+		fmt.Fprintln(w, "OK")
+	}))
+	defer server.Close()
+
+	body := fmt.Sprintf("token=sometoken&team_id=TEAMID3&team_domain=test-workspace&channel_id=CID&channel_name=testchannel&user_id=marco&user_name=marcopoller&command=%%2Fpoll&text=%%22To%%20do%%20or%%20not%%20to%%20do%%3F%%22&response_url=%s&trigger_id=someTriggerID", server.URL)
 	r := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
 	r.Header.Add("X-Slack-Signature", "8e9fe980e2b36c7a7accab28bd8e315667cf9122c3f01c3b7230bb9587627ccb")
 	r.Header.Add("X-Slack-Request-Timestamp", "1531431954")
@@ -204,10 +226,9 @@ func TestNewPollWithWrongUsage(t *testing.T) {
 	mp.StartPoll(w, r)
 
 	resp := w.Result()
-	rbody, _ := ioutil.ReadAll(resp.Body)
 
-	assert.Equal(t, "{\"response_type\":\"ephemeral\",\"text\":\":warning: Wrong usage. `/poll \\\"Question\\\" \\\"Option 1\\\" \\\"Option 2\\\" ...`\"}", string(rbody))
 	assert.Equal(t, 200, resp.StatusCode)
+	assert.Equal(t, "{\"response_type\":\"ephemeral\",\"text\":\":warning: Wrong usage. `/poll \\\"Question\\\" \\\"Option 1\\\" \\\"Option 2\\\" ...`\"}", slackRequest)
 }
 
 func TestErrorReadingBodyOnNewPoll(t *testing.T) {
