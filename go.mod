@@ -8,6 +8,7 @@ require (
 	github.com/golang/protobuf v1.3.1 // indirect
 	github.com/google/uuid v1.1.1 // indirect
 	github.com/hashicorp/golang-lru v0.5.1 // indirect
+	github.com/imroc/req v0.2.4
 	github.com/lithammer/shortuuid v3.0.0+incompatible
 	github.com/nlopes/slack v0.5.1-0.20190508220637-3970c759dead
 	github.com/pkg/errors v0.8.1

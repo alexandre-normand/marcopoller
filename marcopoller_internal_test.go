@@ -8,7 +8,7 @@ import (
 )
 
 func TestRenderPollNoVotes(t *testing.T) {
-	poll := Poll{ID: "un", MsgID: MsgIdentifier{ChannelID: "myLittleChannel", Timestamp: "1120"}, Question: "What's your favorite book?", Options: []string{"Ishmael", "Story of B", "My Ishmael", "Paradise Built in Hell"}, Creator: "marco"}
+	poll := Poll{ID: "un", Question: "What's your favorite book?", Options: []string{"Ishmael", "Story of B", "My Ishmael", "Paradise Built in Hell"}, Creator: "marco"}
 	blocks := renderPoll(poll, map[string][]Voter{})
 	render, err := json.Marshal(blocks)
 	require.NoError(t, err)
@@ -17,7 +17,7 @@ func TestRenderPollNoVotes(t *testing.T) {
 }
 
 func TestRenderPollOneVote(t *testing.T) {
-	poll := Poll{ID: "un", MsgID: MsgIdentifier{ChannelID: "myLittleChannel", Timestamp: "1120"}, Question: "What's your favorite book?", Options: []string{"Ishmael", "Story of B", "My Ishmael", "Paradise Built in Hell"}, Creator: "marco"}
+	poll := Poll{ID: "un", Question: "What's your favorite book?", Options: []string{"Ishmael", "Story of B", "My Ishmael", "Paradise Built in Hell"}, Creator: "marco"}
 	blocks := renderPoll(poll, map[string][]Voter{"0": []Voter{Voter{userID: "marco", avatarURL: "https://avatar.me", name: "Marco Poller"}}})
 	render, err := json.Marshal(blocks)
 	require.NoError(t, err)
@@ -26,7 +26,7 @@ func TestRenderPollOneVote(t *testing.T) {
 }
 
 func TestRenderPollElevenVoters(t *testing.T) {
-	poll := Poll{ID: "un", MsgID: MsgIdentifier{ChannelID: "myLittleChannel", Timestamp: "1120"}, Question: "What's your favorite book?", Options: []string{"Ishmael", "Story of B", "My Ishmael", "Paradise Built in Hell"}, Creator: "marco"}
+	poll := Poll{ID: "un", Question: "What's your favorite book?", Options: []string{"Ishmael", "Story of B", "My Ishmael", "Paradise Built in Hell"}, Creator: "marco"}
 	blocks := renderPoll(poll, map[string][]Voter{"0": []Voter{Voter{userID: "user1", avatarURL: "https://avatar1.me", name: "User1"},
 		Voter{userID: "user2", avatarURL: "https://avatar2.me", name: "User2"},
 		Voter{userID: "user3", avatarURL: "https://avatar3.me", name: "User3"},
@@ -47,7 +47,7 @@ func TestRenderPollElevenVoters(t *testing.T) {
 }
 
 func TestRenderPollTenVoters(t *testing.T) {
-	poll := Poll{ID: "un", MsgID: MsgIdentifier{ChannelID: "myLittleChannel", Timestamp: "1120"}, Question: "What's your favorite book?", Options: []string{"Ishmael", "Story of B", "My Ishmael", "Paradise Built in Hell"}, Creator: "marco"}
+	poll := Poll{ID: "un", Question: "What's your favorite book?", Options: []string{"Ishmael", "Story of B", "My Ishmael", "Paradise Built in Hell"}, Creator: "marco"}
 	blocks := renderPoll(poll, map[string][]Voter{"0": []Voter{Voter{userID: "user1", avatarURL: "https://avatar1.me", name: "User1"},
 		Voter{userID: "user2", avatarURL: "https://avatar2.me", name: "User2"},
 		Voter{userID: "user3", avatarURL: "https://avatar3.me", name: "User3"},
