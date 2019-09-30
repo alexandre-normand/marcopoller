@@ -41,9 +41,10 @@ const (
 
 // Slack slash command parameter names
 const (
-	textParam    = "text"
-	channelParam = "channel_id"
-	creatorParam = "user_id"
+	textParam        = "text"
+	channelParam     = "channel_id"
+	creatorParam     = "user_id"
+	responseURLParam = "response_url"
 )
 
 // Callback represents a slack interaction callback payload
@@ -345,7 +346,7 @@ func (mp *MarcoPoller) StartPoll(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	pollText, creator, _, err := parseNewPollRequest(string(body))
+	pollText, creator, responseURL, err := parseNewPollRequest(string(body))
 	if err != nil {
 		log.Printf("Error parsing poll request: %v", err)
 		http.Error(w, err.Error(), 400)
@@ -355,10 +356,16 @@ func (mp *MarcoPoller) StartPoll(w http.ResponseWriter, r *http.Request) {
 	question, options, err := parsePollParams(pollText)
 	if err != nil {
 		actionResponse := ActionResponse{ResponseType: "ephemeral", Text: ":warning: Wrong usage. `/poll \"Question\" \"Option 1\" \"Option 2\" ...`"}
-		err := returnActionResponse(w, actionResponse)
-		if err != nil {
-			log.Printf("Error writing slash response for invalid poll usage: %s", err.Error())
-			http.Error(w, err.Error(), 500)
+		resp, err := req.Post(responseURL, req.BodyJSON(&actionResponse))
+		if err != nil || resp.Response().StatusCode != 200 {
+			if err != nil {
+				log.Printf("Error writing wrong usage message: %s", err.Error())
+				http.Error(w, err.Error(), 500)
+			} else {
+				log.Printf("Error writing wrong usage message: %s", resp.String())
+				http.Error(w, resp.String(), 500)
+			}
+
 			return
 		}
 
@@ -383,12 +390,20 @@ func (mp *MarcoPoller) StartPoll(w http.ResponseWriter, r *http.Request) {
 	}
 
 	actionResponse := ActionResponse{ResponseType: "in_channel", Blocks: renderPoll(poll, map[string][]Voter{})}
-	err = returnActionResponse(w, actionResponse)
-	if err != nil {
-		log.Printf("Error writing slash response for poll [%s]: %s", poll.ID, err.Error())
-		http.Error(w, err.Error(), 500)
+	resp, err := req.Post(responseURL, req.BodyJSON(&actionResponse))
+	if err != nil || resp.Response().StatusCode != 200 {
+		if err != nil {
+			log.Printf("Error writing new poll [%s] message: %s", poll.ID, err.Error())
+			http.Error(w, err.Error(), 500)
+		} else {
+			log.Printf("Error writing new poll [%s] message: %s", poll.ID, resp.String())
+			http.Error(w, resp.String(), 500)
+		}
+
 		return
 	}
+
+	w.WriteHeader(http.StatusOK)
 }
 
 // slackTimestampToTime converts a slack timestamp string (something like "1556928600.008500") to a time.
@@ -434,14 +449,14 @@ func getPollCreationTime(pollID string) (creationTime time.Time) {
 	return time.Unix(creationTimeSeconds, 0)
 }
 
-// parseNewPollRequest parses a new poll request and returns the pollText, the creator and the channel
-func parseNewPollRequest(requestBody string) (pollText string, creator string, channel string, err error) {
+// parseNewPollRequest parses a new poll request and returns the pollText, the creator and the response url
+func parseNewPollRequest(requestBody string) (pollText string, creator string, responseUrl string, err error) {
 	params, err := parseRequest(requestBody)
 	if err != nil {
 		return "", "", "", err
 	}
 
-	return params[textParam], params[creatorParam], params[channelParam], nil
+	return params[textParam], params[creatorParam], params[responseURLParam], nil
 }
 
 // parseRequest parses a slack request parameters. Since slack request parameters have a single value,
@@ -585,10 +600,16 @@ func (mp *MarcoPoller) RegisterVote(w http.ResponseWriter, r *http.Request) {
 		mp.debugf("Invalid vote for poll [%s] with action callback [%v]", pollID, callback)
 
 		actionResponse := ActionResponse{ResponseType: "ephemeral", Text: fmt.Sprintf(":warning: Sorry, %s", err.Error())}
-		_, err := req.Post(callback.ResponseURL, req.BodyJSON(&actionResponse))
-		if err != nil {
-			log.Printf("Error writing slash response for vote registration on poll [%s]: %s", pollID, err.Error())
-			http.Error(w, err.Error(), 500)
+		resp, err := req.Post(callback.ResponseURL, req.BodyJSON(&actionResponse))
+		if err != nil || resp.Response().StatusCode != 200 {
+			if err != nil {
+				log.Printf("Error writing slash response for vote registration on poll [%s]: %s", pollID, err.Error())
+				http.Error(w, err.Error(), 500)
+			} else {
+				log.Printf("Error writing slash response for vote registration on poll [%s]: %s", pollID, resp.String())
+				http.Error(w, resp.String(), 500)
+			}
+
 			return
 		}
 
