@@ -5,11 +5,13 @@ import (
 	"fmt"
 	"github.com/alexandre-normand/slackscot/store"
 	"github.com/alexandre-normand/slackscot/store/datastoredb"
+	"github.com/imroc/req"
 	"github.com/lithammer/shortuuid"
 	"github.com/nlopes/slack"
 	"github.com/pkg/errors"
 	"github.com/spf13/cast"
 	"google.golang.org/api/option"
+	"io"
 	"io/ioutil"
 	"log"
 	"net/http"
@@ -49,11 +51,13 @@ type Callback struct {
 	Type        slack.InteractionType `json:"type"`
 	Team        slack.Team            `json:"team"`
 	User        slack.User            `json:"user"`
+	Container   Container             `json:"container,omitempty"`
 	ApiAppID    string                `json:"api_app_id"`
 	Token       string                `json:"token"`
 	TriggerID   string                `json:"trigger_id"`
 	ResponseURL string                `json:"response_url"`
 	ActionTs    string                `json:"action_ts"`
+	Message     slack.Msg             `json:"message,omitempty"`
 	Channel     slack.Channel         `json:"channel"`
 	Name        string                `json:"name"`
 	Value       string                `json:"value"`
@@ -70,19 +74,27 @@ type Action struct {
 	ActionTs string                `json:"action_ts"`
 }
 
-// Poll represents a poll
-type Poll struct {
-	ID       string        `json:"id"`
-	MsgID    MsgIdentifier `json:"msgID"`
-	Question string        `json:"question"`
-	Options  []string      `json:"options"`
-	Creator  string        `json:"creator"`
+// Container represents a container element part of a Callback
+type Container struct {
+	Type         string `json:"type,omitempty"`
+	MsgTimestamp string `json:"message_ts,omitempty"`
+	ChannelID    string `json:"channel_id,omitempty"`
+	IsEphemeral  bool   `json:is_ephemeral,omitempty`
 }
 
-// MsgIdentifier represents a slack message identifier (relative to the workspace the app interacts with)
-type MsgIdentifier struct {
-	ChannelID string `json:"channelID"`
-	Timestamp string `json:"timestamp"`
+// Poll represents a poll
+type Poll struct {
+	ID       string   `json:"id"`
+	Question string   `json:"question"`
+	Options  []string `json:"options"`
+	Creator  string   `json:"creator"`
+}
+
+// ActionResponse represents a response to a slash command or action
+type ActionResponse struct {
+	ResponseType string        `json:"response_type,omitempty"`
+	Text         string        `json:"text,omitempty"`
+	Blocks       []slack.Block `json:"blocks,omitempty"`
 }
 
 // Voter represents a voting user
@@ -95,23 +107,21 @@ type Voter struct {
 // MarcoPoller represents a Marco Poller instance
 type MarcoPoller struct {
 	storer       store.GlobalSiloStringStorer
-	messenger    Messenger
 	userFinder   UserFinder
 	verifier     Verifier
 	pollVerifier PollVerifier
 	debug        bool
 }
 
-// Messenger is implemented by any value that has the PostMessage, DeleteMessage, UpdateMessage methods
-type Messenger interface {
-	// PostMessage sends a message to a channel. See https://godoc.org/github.com/nlopes/slack#Client.PostMessage
-	PostMessage(channelID string, options ...slack.MsgOption) (string, string, error)
-	// PostEphemeral sends an ephemeral message to a user in a channel. See https://godoc.org/github.com/nlopes/slack#Client.PostEphemeral
-	PostEphemeral(channelID, userID string, options ...slack.MsgOption) (string, error)
-	// DeleteMessage deletes a message in a channel. See https://godoc.org/github.com/nlopes/slack#Client.DeleteMessage
-	DeleteMessage(channel, messageTimestamp string) (string, string, error)
-	// UpdateMessage updates a message in a channel. See https://godoc.org/github.com/nlopes/slack#Client.UpdateMessage
-	UpdateMessage(channelID, timestamp string, options ...slack.MsgOption) (string, string, string, error)
+// DeleteMessage represents the slack action response to delete an original message
+type DeleteMessage struct {
+	DeleteOriginal bool `json:"delete_original,omitempty"`
+}
+
+// UpdateMessage represents the slack action response to update an original message
+type UpdateMessage struct {
+	ReplaceOriginal bool `json:"replace_original,omitempty"`
+	ActionResponse
 }
 
 // UserFinder is implemented by any value that has the GetInfo method
@@ -187,21 +197,11 @@ func (avpv AlwaysValidPollVerifier) Verify(pollID string, actionTime time.Time) 
 // Option is a function that applies an option to a MarcoPoller instance
 type Option func(mp *MarcoPoller) (err error)
 
-// OptionSlackClient sets a nlopes/slack.Client as the implementation of Messenger
+// OptionSlackClient sets a nlopes/slack.Client as the implementation of UserFinder
 func OptionSlackClient(slackToken string, debug bool) Option {
 	return func(mp *MarcoPoller) (err error) {
 		sc := slack.New(slackToken, slack.OptionDebug(debug))
-		mp.messenger = sc
 		mp.userFinder = sc
-		return nil
-	}
-}
-
-// OptionSlackMessenger sets a nlopes/slack.Client as the implementation of Messenger
-func OptionSlackMessenger(token string, debug bool) Option {
-	return func(mp *MarcoPoller) (err error) {
-		sc := slack.New(token, slack.OptionDebug(debug))
-		mp.messenger = sc
 		return nil
 	}
 }
@@ -215,7 +215,7 @@ func OptionSlackUserFinder(token string, debug bool) Option {
 	}
 }
 
-// OptionSlackVerifier sets a nlopes/slack.Client as the implementation of Messenger
+// OptionSlackVerifier sets a nlopes/slack.Client as the implementation of Verifier
 func OptionSlackVerifier(slackSigningSecret string) Option {
 	return func(mp *MarcoPoller) (err error) {
 		mp.verifier = &SlackVerifier{slackSigningSecret: slackSigningSecret}
@@ -232,14 +232,6 @@ func OptionDatastore(datastoreProjectID string, gcloudClientOpts ...option.Clien
 			return errors.Wrapf(err, "Error initializing datastore persistence on project [%s]", datastoreProjectID)
 		}
 
-		return nil
-	}
-}
-
-// OptionMessenger sets a messenger as the implementation on MarcoPoller
-func OptionMessenger(messenger Messenger) Option {
-	return func(mp *MarcoPoller) (err error) {
-		mp.messenger = messenger
 		return nil
 	}
 }
@@ -300,10 +292,6 @@ func NewWithOptions(opts ...Option) (mp *MarcoPoller, err error) {
 		}
 	}
 
-	if mp.messenger == nil {
-		return nil, fmt.Errorf("Messenger is nil after applying all Options. Did you forget to set one?")
-	}
-
 	if mp.userFinder == nil {
 		return nil, fmt.Errorf("UserFinder is nil after applying all Options. Did you forget to set one?")
 	}
@@ -357,7 +345,7 @@ func (mp *MarcoPoller) StartPoll(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	pollText, creator, channel, err := parseNewPollRequest(string(body))
+	pollText, creator, _, err := parseNewPollRequest(string(body))
 	if err != nil {
 		log.Printf("Error parsing poll request: %v", err)
 		http.Error(w, err.Error(), 400)
@@ -366,9 +354,10 @@ func (mp *MarcoPoller) StartPoll(w http.ResponseWriter, r *http.Request) {
 
 	question, options, err := parsePollParams(pollText)
 	if err != nil {
-		_, err = mp.messenger.PostEphemeral(channel, creator, slack.MsgOptionText(":warning: Wrong usage. `/poll \"Question\" \"Option 1\" \"Option 2\" ...`", false))
+		actionResponse := ActionResponse{ResponseType: "ephemeral", Text: ":warning: Wrong usage. `/poll \"Question\" \"Option 1\" \"Option 2\" ...`"}
+		err := returnActionResponse(w, actionResponse)
 		if err != nil {
-			log.Printf("Error sending message: %v", err)
+			log.Printf("Error writing slash response for invalid poll usage: %s", err.Error())
 			http.Error(w, err.Error(), 500)
 			return
 		}
@@ -377,22 +366,7 @@ func (mp *MarcoPoller) StartPoll(w http.ResponseWriter, r *http.Request) {
 	}
 
 	pollCreationTime := time.Now()
-	poll := Poll{ID: generatePollID(pollCreationTime.Unix()), MsgID: MsgIdentifier{ChannelID: channel, Timestamp: "TBD"}, Question: question, Options: options, Creator: creator}
-	_, timestamp, err := mp.messenger.PostMessage(channel, slack.MsgOptionAsUser(false), slack.MsgOptionBlocks(renderPoll(poll, map[string][]Voter{})...))
-	if err != nil {
-		if err.Error() == "channel_not_found" {
-			w.Header().Set("Content-type", "application/json")
-			fmt.Fprintf(w, "{ \"response_type\": \"ephemeral\", \"text\": \"I don't have access to this conversation. Try adding me to the apps before creating a poll!\" }")
-			return
-		} else {
-			log.Printf("Error sending poll message: %v", err)
-			http.Error(w, err.Error(), 500)
-			return
-		}
-	}
-
-	// Tack on the timestamp to the message id and generate the poll identifier
-	poll.MsgID.Timestamp = timestamp
+	poll := Poll{ID: generatePollID(pollCreationTime.Unix()), Question: question, Options: options, Creator: creator}
 
 	encodedPoll, err := encodePoll(poll)
 	if err != nil {
@@ -404,6 +378,14 @@ func (mp *MarcoPoller) StartPoll(w http.ResponseWriter, r *http.Request) {
 	err = mp.storer.PutSiloString(poll.ID, pollInfoKey, encodedPoll)
 	if err != nil {
 		log.Printf("Error persisting poll [%s]", poll.ID)
+		http.Error(w, err.Error(), 500)
+		return
+	}
+
+	actionResponse := ActionResponse{ResponseType: "in_channel", Blocks: renderPoll(poll, map[string][]Voter{})}
+	err = returnActionResponse(w, actionResponse)
+	if err != nil {
+		log.Printf("Error writing slash response for poll [%s]: %s", poll.ID, err.Error())
 		http.Error(w, err.Error(), 500)
 		return
 	}
@@ -422,6 +404,20 @@ func slackTimestampToTime(slackTimestamp string) (parsedTime time.Time) {
 // and a unique identifier
 func generatePollID(timestamp int64) (pollID string) {
 	return fmt.Sprintf("%d-%s", timestamp, shortuuid.New())
+}
+
+// returnActionResponse encodes the json response and writes it ensuring http headers and status code are
+// correctly set
+func returnActionResponse(w http.ResponseWriter, resp interface{}) (err error) {
+	body, err := json.Marshal(resp)
+	if err != nil {
+		return err
+	}
+
+	w.Header().Set("Content-type", "application/json")
+	io.WriteString(w, string(body))
+
+	return nil
 }
 
 // getPollCreationTime returns the poll creation time from the timestamp part of its identifier. To support legacy
@@ -588,9 +584,10 @@ func (mp *MarcoPoller) RegisterVote(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		mp.debugf("Invalid vote for poll [%s] with action callback [%v]", pollID, callback)
 
-		_, err = mp.messenger.PostEphemeral(callback.Channel.ID, callback.User.ID, slack.MsgOptionText(fmt.Sprintf(":warning: Sorry, %s", err.Error()), false))
+		actionResponse := ActionResponse{ResponseType: "ephemeral", Text: fmt.Sprintf(":warning: Sorry, %s", err.Error())}
+		_, err := req.Post(callback.ResponseURL, req.BodyJSON(&actionResponse))
 		if err != nil {
-			log.Printf("Error sending message: %v", err)
+			log.Printf("Error writing slash response for vote registration on poll [%s]: %s", pollID, err.Error())
 			http.Error(w, err.Error(), 500)
 			return
 		}
@@ -623,19 +620,32 @@ func (mp *MarcoPoller) RegisterVote(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 
-			_, _, err = mp.messenger.DeleteMessage(poll.MsgID.ChannelID, poll.MsgID.Timestamp)
-			if err != nil {
-				log.Printf("Error deleting message: %v", err)
-				http.Error(w, err.Error(), 500)
+			resp, err := req.Post(callback.ResponseURL, req.BodyJSON(&DeleteMessage{DeleteOriginal: true}))
+			if err != nil || resp.Response().StatusCode != 200 {
+				if err != nil {
+					log.Printf("Error deleting message: %v", err)
+					http.Error(w, err.Error(), 500)
+				} else {
+					log.Printf("Error deleting message: %s", resp.String())
+					http.Error(w, resp.String(), 500)
+				}
+
 				return
 			}
 
 			return
 		} else {
-			_, err = mp.messenger.PostEphemeral(callback.Channel.ID, callback.User.ID, slack.MsgOptionText(fmt.Sprintf(":warning: Only the poll creator (<@%s>) is allowed to delete the poll", poll.Creator), false))
-			if err != nil {
-				log.Printf("Error sending message: %v", err)
-				http.Error(w, err.Error(), 500)
+			actionResponse := ActionResponse{ResponseType: "ephemeral", Text: fmt.Sprintf(":warning: Only the poll creator (<@%s>) is allowed to delete the poll", poll.Creator)}
+			resp, err := req.Post(callback.ResponseURL, req.BodyJSON(&actionResponse))
+			if err != nil || resp.Response().StatusCode != 200 {
+				if err != nil {
+					log.Printf("Error writing slash response prohibited deletion of poll [%s]: %s", pollID, err.Error())
+					http.Error(w, err.Error(), 500)
+				} else {
+					log.Printf("Error writing slash response prohibited deletion of poll [%s]: %s", pollID, resp.String())
+					http.Error(w, resp.String(), 500)
+				}
+
 				return
 			}
 
@@ -657,10 +667,16 @@ func (mp *MarcoPoller) RegisterVote(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_, _, _, err = mp.messenger.UpdateMessage(poll.MsgID.ChannelID, poll.MsgID.Timestamp, slack.MsgOptionBlocks(renderPoll(poll, votes)...))
-	if err != nil {
-		log.Printf("Error updating poll [%s] message : %v", poll.ID, err)
-		http.Error(w, err.Error(), 500)
+	resp, err := req.Post(callback.ResponseURL, req.BodyJSON(&UpdateMessage{ReplaceOriginal: true, ActionResponse: ActionResponse{Blocks: renderPoll(poll, votes)}}))
+	if err != nil || resp.Response().StatusCode != 200 {
+		if err != nil {
+			log.Printf("Error updating poll [%s] message : %v", poll.ID, err)
+			http.Error(w, err.Error(), 500)
+		} else {
+			log.Printf("Error updating poll [%s] message : %s", poll.ID, resp.String())
+			http.Error(w, resp.String(), 500)
+		}
+
 		return
 	}
 }
