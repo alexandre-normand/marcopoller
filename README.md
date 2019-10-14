@@ -10,6 +10,8 @@ Marco Poller is a [slack](https://slack.com) app that does one thing: manage sla
 that you don't need this. But if you're part of an organisation that doesn't allow 3rd party slack apps or if you just feel like having your own version that does its
 thing a little differently, go ahead and look at Marco Poller.
 
+![Demo](https://www.dropbox.com/s/61go5pqb2rowlh7/Marco%20Poller.gif?raw=1)
+
 ## Backing Technology
 *   [Go](https://golang.org): `>= 1.12` 
 *   [Google Cloud Functions](https://cloud.google.com/functions/docs/quickstart#functions-deploy-command-go)
