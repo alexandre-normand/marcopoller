@@ -56,7 +56,7 @@ func TestValidNewPoll(t *testing.T) {
 	resp := w.Result()
 
 	assert.Equal(t, 200, resp.StatusCode)
-	assert.Regexp(t, regexp.MustCompile("\\{\"response_type\":\"in_channel\",\"blocks\":\\[\\{\"type\":\"section\",\"text\":\\{\"type\":\"mrkdwn\",\"text\":\"\\*To do or not to do\\?\\*\"\\}\\},\\{\"type\":\"divider\"\\},\\{\"type\":\"section\",\"text\":\\{\"type\":\"mrkdwn\",\"text\":\" • Do\"\\},\"accessory\":\\{\"type\":\"button\",\"text\":\\{\"type\":\"plain_text\",\"text\":\"Vote\"\\},\"action_id\":\".*\",\"value\":\"0\",\"style\":\"primary\"\\}\\},\\{\"type\":\"section\",\"text\":\\{\"type\":\"mrkdwn\",\"text\":\" • Not Do\"\\},\"accessory\":\\{\"type\":\"button\",\"text\":\\{\"type\":\"plain_text\",\"text\":\"Vote\"\\},\"action_id\":\".*\",\"value\":\"1\",\"style\":\"primary\"\\}\\},\\{\"type\":\"section\",\"text\":\\{\"type\":\"mrkdwn\",\"text\":\" \"\\},\"accessory\":\\{\"type\":\"button\",\"text\":\\{\"type\":\"plain_text\",\"text\":\"Delete poll\"\\},\"action_id\":\".*\",\"value\":\"delete\",\"style\":\"danger\"\\}\\},\\{\"type\":\"context\",\"elements\":\\[\\{\"type\":\"mrkdwn\",\"text\":\"Created by \\\\u003c@UID\\\\u003e\"\\}\\]\\}\\]\\}"), slackRequest)
+	assert.Regexp(t, regexp.MustCompile("\\{\"response_type\":\"in_channel\",\"blocks\":\\[\\{\"type\":\"section\",\"text\":\\{\"type\":\"mrkdwn\",\"text\":\"\\*To do or not to do\\?\\*\"\\}\\},\\{\"type\":\"divider\"\\},\\{\"type\":\"section\",\"text\":\\{\"type\":\"mrkdwn\",\"text\":\" • Do\"\\},\"accessory\":\\{\"type\":\"button\",\"text\":\\{\"type\":\"plain_text\",\"text\":\"Vote\"\\},\"action_id\":\".*\",\"value\":\"0\",\"style\":\"primary\"\\}\\},\\{\"type\":\"section\",\"text\":\\{\"type\":\"mrkdwn\",\"text\":\" • Not Do\"\\},\"accessory\":\\{\"type\":\"button\",\"text\":\\{\"type\":\"plain_text\",\"text\":\"Vote\"\\},\"action_id\":\".*\",\"value\":\"1\",\"style\":\"primary\"\\}\\},\\{\"type\":\"section\",\"text\":\\{\"type\":\"mrkdwn\",\"text\":\" \"\\},\"accessory\":\\{\"type\":\"button\",\"text\":\\{\"type\":\"plain_text\",\"text\":\"Delete poll\"\\},\"action_id\":\".*\",\"value\":\"delete\",\"style\":\"danger\"\\}\\},\\{\"type\":\"context\",\"elements\":\\[\\{\"type\":\"mrkdwn\",\"text\":\"Created by \\\\u003c@UID\\\\u003e\"\\}\\]\\}\\]\\,\"replace_original\":false}"), slackRequest)
 }
 
 func TestPollWithCurlyQuotes(t *testing.T) {
@@ -96,7 +96,7 @@ func TestPollWithCurlyQuotes(t *testing.T) {
 
 	resp := w.Result()
 
-	assert.Regexp(t, regexp.MustCompile("\\{\"response_type\":\"in_channel\",\"blocks\":\\[\\{\"type\":\"section\",\"text\":\\{\"type\":\"mrkdwn\",\"text\":\"\\*To do or not to do\\?\\*\"\\}\\},\\{\"type\":\"divider\"\\},\\{\"type\":\"section\",\"text\":\\{\"type\":\"mrkdwn\",\"text\":\" • Do\"\\},\"accessory\":\\{\"type\":\"button\",\"text\":\\{\"type\":\"plain_text\",\"text\":\"Vote\"\\},\"action_id\":\".*\",\"value\":\"0\",\"style\":\"primary\"\\}\\},\\{\"type\":\"section\",\"text\":\\{\"type\":\"mrkdwn\",\"text\":\" • Not Do\"\\},\"accessory\":\\{\"type\":\"button\",\"text\":\\{\"type\":\"plain_text\",\"text\":\"Vote\"\\},\"action_id\":\".*\",\"value\":\"1\",\"style\":\"primary\"\\}\\},\\{\"type\":\"section\",\"text\":\\{\"type\":\"mrkdwn\",\"text\":\" \"\\},\"accessory\":\\{\"type\":\"button\",\"text\":\\{\"type\":\"plain_text\",\"text\":\"Delete poll\"\\},\"action_id\":\".*\",\"value\":\"delete\",\"style\":\"danger\"\\}\\},\\{\"type\":\"context\",\"elements\":\\[\\{\"type\":\"mrkdwn\",\"text\":\"Created by \\\\u003c@UID\\\\u003e\"\\}\\]\\}\\]\\}"), slackRequest)
+	assert.Regexp(t, regexp.MustCompile("\\{\"response_type\":\"in_channel\",\"blocks\":\\[\\{\"type\":\"section\",\"text\":\\{\"type\":\"mrkdwn\",\"text\":\"\\*To do or not to do\\?\\*\"\\}\\},\\{\"type\":\"divider\"\\},\\{\"type\":\"section\",\"text\":\\{\"type\":\"mrkdwn\",\"text\":\" • Do\"\\},\"accessory\":\\{\"type\":\"button\",\"text\":\\{\"type\":\"plain_text\",\"text\":\"Vote\"\\},\"action_id\":\".*\",\"value\":\"0\",\"style\":\"primary\"\\}\\},\\{\"type\":\"section\",\"text\":\\{\"type\":\"mrkdwn\",\"text\":\" • Not Do\"\\},\"accessory\":\\{\"type\":\"button\",\"text\":\\{\"type\":\"plain_text\",\"text\":\"Vote\"\\},\"action_id\":\".*\",\"value\":\"1\",\"style\":\"primary\"\\}\\},\\{\"type\":\"section\",\"text\":\\{\"type\":\"mrkdwn\",\"text\":\" \"\\},\"accessory\":\\{\"type\":\"button\",\"text\":\\{\"type\":\"plain_text\",\"text\":\"Delete poll\"\\},\"action_id\":\".*\",\"value\":\"delete\",\"style\":\"danger\"\\}\\},\\{\"type\":\"context\",\"elements\":\\[\\{\"type\":\"mrkdwn\",\"text\":\"Created by \\\\u003c@UID\\\\u003e\"\\}\\]\\}\\]\\,\"replace_original\":false}"), slackRequest)
 	assert.Equal(t, 200, resp.StatusCode)
 }
 
@@ -228,7 +228,7 @@ func TestNewPollWithWrongUsage(t *testing.T) {
 	resp := w.Result()
 
 	assert.Equal(t, 200, resp.StatusCode)
-	assert.Equal(t, "{\"response_type\":\"ephemeral\",\"text\":\":warning: Wrong usage. `/poll \\\"Question\\\" \\\"Option 1\\\" \\\"Option 2\\\" ...`\"}", slackRequest)
+	assert.Equal(t, "{\"response_type\":\"ephemeral\",\"text\":\":warning: Wrong usage. `/poll \\\"Question\\\" \\\"Option 1\\\" \\\"Option 2\\\" ...`\",\"replace_original\":false}", slackRequest)
 }
 
 func TestErrorReadingBodyOnNewPoll(t *testing.T) {
@@ -387,7 +387,7 @@ func TestValidVoteUpdate(t *testing.T) {
 	assert.Equal(t, "", string(rbody))
 	assert.Equal(t, 200, resp.StatusCode)
 
-	assert.Regexp(t, regexp.MustCompile("\\{\"replace_original\":true,\"blocks\".*}"), slackRequest)
+	assert.Regexp(t, regexp.MustCompile("\\{\"blocks\".*,\"replace_original\":true}"), slackRequest)
 }
 
 func TestVoteOnExpiredPoll(t *testing.T) {
@@ -432,7 +432,7 @@ func TestVoteOnExpiredPoll(t *testing.T) {
 	assert.Equal(t, "", string(rbody))
 	assert.Equal(t, 200, resp.StatusCode)
 
-	assert.Equal(t, "{\"response_type\":\"ephemeral\",\"text\":\":warning: Sorry, the poll is expired and is now read-only\"}", slackRequest)
+	assert.Equal(t, "{\"response_type\":\"ephemeral\",\"text\":\":warning: Sorry, the poll is expired and is now read-only\",\"replace_original\":false}", slackRequest)
 }
 
 func TestVoteOnPollUsingOldIdentifierFormat(t *testing.T) {
@@ -477,7 +477,7 @@ func TestVoteOnPollUsingOldIdentifierFormat(t *testing.T) {
 	assert.Equal(t, "", string(rbody))
 	assert.Equal(t, 200, resp.StatusCode)
 
-	assert.Equal(t, "{\"response_type\":\"ephemeral\",\"text\":\":warning: Sorry, the poll is expired and is now read-only\"}", slackRequest)
+	assert.Equal(t, "{\"response_type\":\"ephemeral\",\"text\":\":warning: Sorry, the poll is expired and is now read-only\",\"replace_original\":false}", slackRequest)
 }
 
 func TestErrorLoadingUserInfoOnVoteRegistration(t *testing.T) {
@@ -564,7 +564,7 @@ func TestValidNewVote(t *testing.T) {
 	assert.Equal(t, "", string(rbody))
 	assert.Equal(t, 200, resp.StatusCode)
 
-	assert.Regexp(t, regexp.MustCompile("\\{\"replace_original\":true,\"blocks\".*}"), slackRequest)
+	assert.Regexp(t, regexp.MustCompile("\\{\"blocks\".*,\"replace_original\":true}"), slackRequest)
 }
 
 func TestValidNewVoteFailureToLoadPoll(t *testing.T) {
@@ -992,7 +992,7 @@ func TestUnauthorizedDeletePoll(t *testing.T) {
 	assert.Equal(t, "", string(rbody))
 	assert.Equal(t, 200, resp.StatusCode)
 
-	assert.Equal(t, "{\"response_type\":\"ephemeral\",\"text\":\":warning: Only the poll creator (\\u003c@marco\\u003e) is allowed to delete the poll\"}", slackRequest)
+	assert.Equal(t, "{\"response_type\":\"ephemeral\",\"text\":\":warning: Only the poll creator (\\u003c@marco\\u003e) is allowed to delete the poll\",\"replace_original\":false}", slackRequest)
 }
 
 func TestUnauthorizedDeletePollFailureToSendSlackMsg(t *testing.T) {
