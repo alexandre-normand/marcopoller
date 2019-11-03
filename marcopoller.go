@@ -93,9 +93,10 @@ type Poll struct {
 
 // ActionResponse represents a response to a slash command or action
 type ActionResponse struct {
-	ResponseType string        `json:"response_type,omitempty"`
-	Text         string        `json:"text,omitempty"`
-	Blocks       []slack.Block `json:"blocks,omitempty"`
+	ResponseType    string        `json:"response_type,omitempty"`
+	Text            string        `json:"text,omitempty"`
+	Blocks          []slack.Block `json:"blocks,omitempty"`
+	ReplaceOriginal bool          `json:"replace_original"`
 }
 
 // Voter represents a voting user
@@ -121,7 +122,6 @@ type DeleteMessage struct {
 
 // UpdateMessage represents the slack action response to update an original message
 type UpdateMessage struct {
-	ReplaceOriginal bool `json:"replace_original,omitempty"`
 	ActionResponse
 }
 
@@ -599,7 +599,7 @@ func (mp *MarcoPoller) RegisterVote(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		mp.debugf("Invalid vote for poll [%s] with action callback [%v]", pollID, callback)
 
-		actionResponse := ActionResponse{ResponseType: "ephemeral", Text: fmt.Sprintf(":warning: Sorry, %s", err.Error())}
+		actionResponse := ActionResponse{ResponseType: "ephemeral", Text: fmt.Sprintf(":warning: Sorry, %s", err.Error()), ReplaceOriginal: false}
 		resp, err := req.Post(callback.ResponseURL, req.BodyJSON(&actionResponse))
 		if err != nil || resp.Response().StatusCode != 200 {
 			if err != nil {
@@ -656,7 +656,7 @@ func (mp *MarcoPoller) RegisterVote(w http.ResponseWriter, r *http.Request) {
 
 			return
 		} else {
-			actionResponse := ActionResponse{ResponseType: "ephemeral", Text: fmt.Sprintf(":warning: Only the poll creator (<@%s>) is allowed to delete the poll", poll.Creator)}
+			actionResponse := ActionResponse{ResponseType: "ephemeral", Text: fmt.Sprintf(":warning: Only the poll creator (<@%s>) is allowed to delete the poll", poll.Creator), ReplaceOriginal: false}
 			resp, err := req.Post(callback.ResponseURL, req.BodyJSON(&actionResponse))
 			if err != nil || resp.Response().StatusCode != 200 {
 				if err != nil {
@@ -688,7 +688,7 @@ func (mp *MarcoPoller) RegisterVote(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	resp, err := req.Post(callback.ResponseURL, req.BodyJSON(&UpdateMessage{ReplaceOriginal: true, ActionResponse: ActionResponse{Blocks: renderPoll(poll, votes)}}))
+	resp, err := req.Post(callback.ResponseURL, req.BodyJSON(&UpdateMessage{ActionResponse: ActionResponse{Blocks: renderPoll(poll, votes), ReplaceOriginal: true}}))
 	if err != nil || resp.Response().StatusCode != 200 {
 		if err != nil {
 			log.Printf("Error updating poll [%s] message : %v", poll.ID, err)
