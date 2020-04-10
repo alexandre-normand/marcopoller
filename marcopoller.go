@@ -1,6 +1,7 @@
 package marcopoller
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"github.com/alexandre-normand/slackscot/store"
@@ -10,6 +11,9 @@ import (
 	"github.com/nlopes/slack"
 	"github.com/pkg/errors"
 	"github.com/spf13/cast"
+	opentelemetry "go.opentelemetry.io/otel/api/global"
+	"go.opentelemetry.io/otel/api/key"
+	"go.opentelemetry.io/otel/api/metric"
 	"google.golang.org/api/option"
 	"io"
 	"io/ioutil"
@@ -106,6 +110,16 @@ type Voter struct {
 	name      string
 }
 
+// instruments
+type instruments struct {
+	pollCount   metric.BoundInt64Counter
+	votingCount metric.BoundInt64Counter
+
+	// TODO: Add this one once there's a mechanism for expiring/closing polls
+	// since that would be the place to instrument this
+	//votesPerPoll metric.Int64Measure
+}
+
 // MarcoPoller represents a Marco Poller instance
 type MarcoPoller struct {
 	storer       store.GlobalSiloStringStorer
@@ -113,6 +127,8 @@ type MarcoPoller struct {
 	verifier     Verifier
 	pollVerifier PollVerifier
 	debug        bool
+	meter        metric.Meter
+	instruments  *instruments
 }
 
 // DeleteMessage represents the slack action response to delete an original message
@@ -309,7 +325,22 @@ func NewWithOptions(opts ...Option) (mp *MarcoPoller, err error) {
 		return nil, fmt.Errorf("PollVerifier is nil after applying all Options. Did you forget to set one?")
 	}
 
+	mp.meter = opentelemetry.MeterProvider().Meter("github.com/alexandre-normand/marcopoller")
+	mp.instruments = newInstruments(mp.meter)
+
 	return mp, err
+}
+
+func newInstruments(meter metric.Meter) *instruments {
+	defaultLabels := meter.Labels(key.New("name").String("marco-poller"))
+
+	pollCounter := meter.NewInt64Counter("pollCount")
+	voteCounter := meter.NewInt64Counter("votingCount")
+
+	return &instruments{
+		pollCount:   pollCounter.Bind(defaultLabels),
+		votingCount: voteCounter.Bind(defaultLabels),
+	}
 }
 
 // StartPoll handles a slash command request to start a new poll. This function is meant to be wrapped
@@ -402,6 +433,9 @@ func (mp *MarcoPoller) StartPoll(w http.ResponseWriter, r *http.Request) {
 
 		return
 	}
+
+	ctx := context.Background()
+	mp.instruments.pollCount.Add(ctx, 1)
 
 	w.WriteHeader(http.StatusOK)
 }
@@ -700,6 +734,9 @@ func (mp *MarcoPoller) RegisterVote(w http.ResponseWriter, r *http.Request) {
 
 		return
 	}
+
+	ctx := context.Background()
+	mp.instruments.votingCount.Add(ctx, 1)
 }
 
 // listVotes returns the list of votes: a map of vote values for a poll ID to the array of voters. If an error occurs
