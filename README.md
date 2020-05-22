@@ -1,5 +1,5 @@
 [![GoDoc](https://godoc.org/github.com/alexandre-normand/marcopoller?status.svg)](https://godoc.org/github.com/alexandre-normand/marcopoller)
-[![Build Status](https://travis-ci.org/alexandre-normand/marcopoller.svg?branch=master)](https://travis-ci.org/alexandre-normand/marcopoller)
+[![Build](https://github.com/alexandre-normand/marcopoller/workflows/Go/badge.svg)](https://github.com/alexandre-normand/marcopoller/actions)
 [![Test Coverage](https://api.codeclimate.com/v1/badges/8659e71d13e1df4118a2/test_coverage)](https://codeclimate.com/github/alexandre-normand/marcopoller/test_coverage)
 [![Latest Version](https://img.shields.io/github/tag/alexandre-normand/marcopoller.svg?label=version)](https://github.com/alexandre-normand/marcopoller/releases)
 
