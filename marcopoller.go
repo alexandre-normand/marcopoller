@@ -18,8 +18,8 @@ import (
 	"github.com/alexandre-normand/slackscot/store/datastoredb"
 	"github.com/imroc/req"
 	"github.com/lithammer/shortuuid"
-	"github.com/nlopes/slack"
 	"github.com/pkg/errors"
+	"github.com/slack-go/slack"
 	"github.com/spf13/cast"
 	opentelemetry "go.opentelemetry.io/otel/api/global"
 	"go.opentelemetry.io/otel/api/key"
@@ -145,7 +145,7 @@ type UpdateMessage struct {
 
 // UserFinder is implemented by any value that has the GetInfo method
 type UserFinder interface {
-	// GetUserInfo will retrieve the complete user information. See https://godoc.org/github.com/nlopes/slack#Client.GetUserInfo
+	// GetUserInfo will retrieve the complete user information. See https://godoc.org/github.com/slack-go/slack#Client.GetUserInfo
 	GetUserInfo(user string) (*slack.User, error)
 }
 
@@ -154,7 +154,7 @@ type Verifier interface {
 	Verify(header http.Header, body []byte) (err error)
 }
 
-// SlackVerifier represents a slack verifier backed by github.com/nlopes/slack
+// SlackVerifier represents a slack verifier backed by github.com/slack-go/slack
 type SlackVerifier struct {
 	slackSigningSecret string
 }
@@ -216,7 +216,7 @@ func (avpv AlwaysValidPollVerifier) Verify(pollID string, actionTime time.Time) 
 // Option is a function that applies an option to a MarcoPoller instance
 type Option func(mp *MarcoPoller) (err error)
 
-// OptionSlackClient sets a nlopes/slack.Client as the implementation of UserFinder
+// OptionSlackClient sets a slack-go/slack.Client as the implementation of UserFinder
 func OptionSlackClient(slackToken string, debug bool) Option {
 	return func(mp *MarcoPoller) (err error) {
 		sc := slack.New(slackToken, slack.OptionDebug(debug))
@@ -225,7 +225,7 @@ func OptionSlackClient(slackToken string, debug bool) Option {
 	}
 }
 
-// OptionSlackUserFinder sets a nlopes/slack.Client as the implementation of UserFinder
+// OptionSlackUserFinder sets a slack-go/slack.Client as the implementation of UserFinder
 func OptionSlackUserFinder(token string, debug bool) Option {
 	return func(mp *MarcoPoller) (err error) {
 		sc := slack.New(token, slack.OptionDebug(debug))
@@ -234,7 +234,7 @@ func OptionSlackUserFinder(token string, debug bool) Option {
 	}
 }
 
-// OptionSlackVerifier sets a nlopes/slack.Client as the implementation of Verifier
+// OptionSlackVerifier sets a slack-go/slack.Client as the implementation of Verifier
 func OptionSlackVerifier(slackSigningSecret string) Option {
 	return func(mp *MarcoPoller) (err error) {
 		mp.verifier = &SlackVerifier{slackSigningSecret: slackSigningSecret}

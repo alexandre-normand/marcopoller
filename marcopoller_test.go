@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"github.com/alexandre-normand/marcopoller"
 	"github.com/alexandre-normand/slackscot/store/mocks"
-	"github.com/nlopes/slack"
+	"github.com/slack-go/slack"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
