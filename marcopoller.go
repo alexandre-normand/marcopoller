@@ -4,6 +4,16 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
+	"io/ioutil"
+	"log"
+	"net/http"
+	"net/url"
+	"os"
+	"strings"
+	"time"
+	"unicode"
+
 	"github.com/alexandre-normand/slackscot/store"
 	"github.com/alexandre-normand/slackscot/store/datastoredb"
 	"github.com/imroc/req"
@@ -15,15 +25,6 @@ import (
 	"go.opentelemetry.io/otel/api/key"
 	"go.opentelemetry.io/otel/api/metric"
 	"google.golang.org/api/option"
-	"io"
-	"io/ioutil"
-	"log"
-	"net/http"
-	"net/url"
-	"os"
-	"strings"
-	"time"
-	"unicode"
 )
 
 // Environment variables
@@ -39,8 +40,9 @@ const (
 
 // App constants
 const (
-	name        = "marcoPoller"
-	deleteValue = "delete"
+	appName             = "marco-poller"
+	persistenceKindName = "marcoPoller"
+	deleteValue         = "delete"
 )
 
 // Slack slash command parameter names
@@ -244,7 +246,9 @@ func OptionSlackVerifier(slackSigningSecret string) Option {
 // OptionDatastore sets a datastoredb as the implementation of GlobalSiloStringStorer
 func OptionDatastore(datastoreProjectID string, gcloudClientOpts ...option.ClientOption) Option {
 	return func(mp *MarcoPoller) (err error) {
-		mp.storer, err = datastoredb.New(name, datastoreProjectID, gcloudClientOpts...)
+		meter := opentelemetry.MeterProvider().Meter("github.com/alexandre-normand/marcopoller")
+
+		mp.storer, err = datastoredb.NewWithTelemetry(appName, meter, persistenceKindName, datastoreProjectID, gcloudClientOpts...)
 		if err != nil {
 			return errors.Wrapf(err, "Error initializing datastore persistence on project [%s]", datastoreProjectID)
 		}
@@ -332,7 +336,7 @@ func NewWithOptions(opts ...Option) (mp *MarcoPoller, err error) {
 }
 
 func newInstruments(meter metric.Meter) *instruments {
-	defaultLabels := meter.Labels(key.New("name").String("marco-poller"))
+	defaultLabels := meter.Labels(key.New("name").String(appName))
 
 	pollCounter := meter.NewInt64Counter("pollCount")
 	voteCounter := meter.NewInt64Counter("votingCount")
