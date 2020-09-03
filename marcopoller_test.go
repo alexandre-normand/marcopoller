@@ -3,12 +3,6 @@ package marcopoller_test
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/alexandre-normand/marcopoller"
-	"github.com/alexandre-normand/slackscot/store/mocks"
-	"github.com/slack-go/slack"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/mock"
-	"github.com/stretchr/testify/require"
 	"io/ioutil"
 	"net/http"
 	"net/http/httptest"
@@ -16,6 +10,14 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/alexandre-normand/marcopoller"
+	mmocks "github.com/alexandre-normand/marcopoller/mocks"
+	"github.com/alexandre-normand/slackscot/store/mocks"
+	"github.com/slack-go/slack"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
 )
 
 func TestValidNewPoll(t *testing.T) {
@@ -37,7 +39,7 @@ func TestValidNewPoll(t *testing.T) {
 
 	storer := &mocks.Storer{}
 	storer.On("PutSiloString", mock.Anything, "pollInfo", mock.MatchedBy(func(val string) bool {
-		match, _ := regexp.MatchString("{\"id\":\".*\",\"question\":\"To do or not to do\\?\",\"options\":\\[\"Do\",\"Not Do\"\\],\"creator\":\"UID\"}", val)
+		match, _ := regexp.MatchString("{\"id\":\".*\",\"question\":\"To do or not to do\\?\",\"options\":\\[\"Do\",\"Not Do\"\\],\"features\":{\"multianswers\":false},\"creator\":\"UID\"}", val)
 		return match
 	})).Return(nil)
 	defer storer.AssertExpectations(t)
@@ -46,7 +48,10 @@ func TestValidNewPoll(t *testing.T) {
 	verifier.On("Verify", r.Header, []byte(body)).Return(nil)
 	defer verifier.AssertExpectations(t)
 
-	mp, err := marcopoller.NewWithOptions(marcopoller.OptionVerifier(verifier), marcopoller.OptionUserFinder(userFinder), marcopoller.OptionStorer(storer), marcopoller.OptionPollVerifier(marcopoller.AlwaysValidPollVerifier{}))
+	dialoguer := &mmocks.Dialoguer{}
+	defer dialoguer.AssertExpectations(t)
+
+	mp, err := marcopoller.NewWithOptions(marcopoller.OptionVerifier(verifier), marcopoller.OptionUserFinder(userFinder), marcopoller.OptionStorer(storer), marcopoller.OptionDialoguer(dialoguer), marcopoller.OptionPollVerifier(marcopoller.AlwaysValidPollVerifier{}))
 	require.NoError(t, err)
 
 	w := httptest.NewRecorder()
@@ -56,7 +61,7 @@ func TestValidNewPoll(t *testing.T) {
 	resp := w.Result()
 
 	assert.Equal(t, 200, resp.StatusCode)
-	assert.Regexp(t, regexp.MustCompile("\\{\"response_type\":\"in_channel\",\"blocks\":\\[\\{\"type\":\"section\",\"text\":\\{\"type\":\"mrkdwn\",\"text\":\"\\*To do or not to do\\?\\*\"\\}\\},\\{\"type\":\"divider\"\\},\\{\"type\":\"section\",\"text\":\\{\"type\":\"mrkdwn\",\"text\":\" • Do\"\\},\"accessory\":\\{\"type\":\"button\",\"text\":\\{\"type\":\"plain_text\",\"text\":\"Vote\"\\},\"action_id\":\".*\",\"value\":\"0\",\"style\":\"primary\"\\}\\},\\{\"type\":\"section\",\"text\":\\{\"type\":\"mrkdwn\",\"text\":\" • Not Do\"\\},\"accessory\":\\{\"type\":\"button\",\"text\":\\{\"type\":\"plain_text\",\"text\":\"Vote\"\\},\"action_id\":\".*\",\"value\":\"1\",\"style\":\"primary\"\\}\\},\\{\"type\":\"section\",\"text\":\\{\"type\":\"mrkdwn\",\"text\":\" \"\\},\"accessory\":\\{\"type\":\"button\",\"text\":\\{\"type\":\"plain_text\",\"text\":\"Delete poll\"\\},\"action_id\":\".*\",\"value\":\"delete\",\"style\":\"danger\"\\}\\},\\{\"type\":\"context\",\"elements\":\\[\\{\"type\":\"mrkdwn\",\"text\":\"Created by \\\\u003c@UID\\\\u003e\"\\}\\]\\}\\]\\,\"replace_original\":false}"), slackRequest)
+	assert.Regexp(t, regexp.MustCompile("\\{\"response_type\":\"in_channel\",\"blocks\":.*,\"replace_original\":false}"), slackRequest)
 }
 
 func TestPollWithCurlyQuotes(t *testing.T) {
@@ -78,7 +83,7 @@ func TestPollWithCurlyQuotes(t *testing.T) {
 
 	storer := &mocks.Storer{}
 	storer.On("PutSiloString", mock.Anything, "pollInfo", mock.MatchedBy(func(val string) bool {
-		match, _ := regexp.MatchString("{\"id\":\".*\",\"question\":\"To do or not to do\\?\",\"options\":\\[\"Do\",\"Not Do\"\\],\"creator\":\"UID\"}", val)
+		match, _ := regexp.MatchString("{\"id\":\".*\",\"question\":\"To do or not to do\\?\",\"options\":\\[\"Do\",\"Not Do\"\\],\"features\":{\"multianswers\":false},\"creator\":\"UID\"}", val)
 		return match
 	})).Return(nil)
 	defer storer.AssertExpectations(t)
@@ -87,7 +92,10 @@ func TestPollWithCurlyQuotes(t *testing.T) {
 	verifier.On("Verify", r.Header, []byte(body)).Return(nil)
 	defer verifier.AssertExpectations(t)
 
-	mp, err := marcopoller.NewWithOptions(marcopoller.OptionVerifier(verifier), marcopoller.OptionUserFinder(userFinder), marcopoller.OptionStorer(storer), marcopoller.OptionPollVerifier(marcopoller.AlwaysValidPollVerifier{}))
+	dialoguer := &mmocks.Dialoguer{}
+	defer dialoguer.AssertExpectations(t)
+
+	mp, err := marcopoller.NewWithOptions(marcopoller.OptionVerifier(verifier), marcopoller.OptionUserFinder(userFinder), marcopoller.OptionStorer(storer), marcopoller.OptionDialoguer(dialoguer), marcopoller.OptionPollVerifier(marcopoller.AlwaysValidPollVerifier{}))
 	require.NoError(t, err)
 
 	w := httptest.NewRecorder()
@@ -96,12 +104,20 @@ func TestPollWithCurlyQuotes(t *testing.T) {
 
 	resp := w.Result()
 
-	assert.Regexp(t, regexp.MustCompile("\\{\"response_type\":\"in_channel\",\"blocks\":\\[\\{\"type\":\"section\",\"text\":\\{\"type\":\"mrkdwn\",\"text\":\"\\*To do or not to do\\?\\*\"\\}\\},\\{\"type\":\"divider\"\\},\\{\"type\":\"section\",\"text\":\\{\"type\":\"mrkdwn\",\"text\":\" • Do\"\\},\"accessory\":\\{\"type\":\"button\",\"text\":\\{\"type\":\"plain_text\",\"text\":\"Vote\"\\},\"action_id\":\".*\",\"value\":\"0\",\"style\":\"primary\"\\}\\},\\{\"type\":\"section\",\"text\":\\{\"type\":\"mrkdwn\",\"text\":\" • Not Do\"\\},\"accessory\":\\{\"type\":\"button\",\"text\":\\{\"type\":\"plain_text\",\"text\":\"Vote\"\\},\"action_id\":\".*\",\"value\":\"1\",\"style\":\"primary\"\\}\\},\\{\"type\":\"section\",\"text\":\\{\"type\":\"mrkdwn\",\"text\":\" \"\\},\"accessory\":\\{\"type\":\"button\",\"text\":\\{\"type\":\"plain_text\",\"text\":\"Delete poll\"\\},\"action_id\":\".*\",\"value\":\"delete\",\"style\":\"danger\"\\}\\},\\{\"type\":\"context\",\"elements\":\\[\\{\"type\":\"mrkdwn\",\"text\":\"Created by \\\\u003c@UID\\\\u003e\"\\}\\]\\}\\]\\,\"replace_original\":false}"), slackRequest)
+	assert.Regexp(t, regexp.MustCompile("\\{\"response_type\":\"in_channel\",\"blocks\":.*,\"replace_original\":false}"), slackRequest)
 	assert.Equal(t, 200, resp.StatusCode)
 }
 
 func TestValidNewPollFailureToPersistPollInfo(t *testing.T) {
-	body := "token=sometoken&team_id=TEAMID3&team_domain=test-workspace&channel_id=CID&channel_name=testchannel&user_id=UID&user_name=marco&command=%2Fpoll&text=%22To%20do%20or%20not%20to%20do%3F%22%20%22Do%22%20%22Not%20Do%22&response_url=https%3A%2F%2Fhooks.slack.com%2Fcommands%2Fbla%2Fbleh%2Fblo&trigger_id=someTriggerID"
+	slackRequest := ""
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		reqBody, _ := ioutil.ReadAll(r.Body)
+		slackRequest = string(reqBody)
+		fmt.Fprintln(w, "OK")
+	}))
+	defer server.Close()
+
+	body := "token=sometoken&team_id=TEAMID3&team_domain=test-workspace&channel_id=CID&channel_name=testchannel&user_id=UID&user_name=marco&command=%2Fpoll&text=%22To%20do%20or%20not%20to%20do%3F%22%20%22Do%22%20%22Not%20Do%22&response_url=" + server.URL + "&trigger_id=someTriggerID"
 	r := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
 	r.Header.Add("X-Slack-Signature", "8e9fe980e2b36c7a7accab28bd8e315667cf9122c3f01c3b7230bb9587627ccb")
 	r.Header.Add("X-Slack-Request-Timestamp", "1531431954")
@@ -111,7 +127,7 @@ func TestValidNewPollFailureToPersistPollInfo(t *testing.T) {
 
 	storer := &mocks.Storer{}
 	storer.On("PutSiloString", mock.Anything, "pollInfo", mock.MatchedBy(func(val string) bool {
-		match, _ := regexp.MatchString("{\"id\":\".*\",\"question\":\"To do or not to do\\?\",\"options\":\\[\"Do\",\"Not Do\"\\],\"creator\":\"UID\"}", val)
+		match, _ := regexp.MatchString("{\"id\":\".*\",\"question\":\"To do or not to do\\?\",\"options\":\\[\"Do\",\"Not Do\"\\],\"features\":{\"multianswers\":false},\"creator\":\"UID\"}", val)
 		return match
 	})).Return(fmt.Errorf("failed to persist"))
 	defer storer.AssertExpectations(t)
@@ -120,7 +136,10 @@ func TestValidNewPollFailureToPersistPollInfo(t *testing.T) {
 	verifier.On("Verify", r.Header, []byte(body)).Return(nil)
 	defer verifier.AssertExpectations(t)
 
-	mp, err := marcopoller.NewWithOptions(marcopoller.OptionVerifier(verifier), marcopoller.OptionUserFinder(userFinder), marcopoller.OptionStorer(storer), marcopoller.OptionPollVerifier(marcopoller.AlwaysValidPollVerifier{}))
+	dialoguer := &mmocks.Dialoguer{}
+	defer dialoguer.AssertExpectations(t)
+
+	mp, err := marcopoller.NewWithOptions(marcopoller.OptionVerifier(verifier), marcopoller.OptionUserFinder(userFinder), marcopoller.OptionStorer(storer), marcopoller.OptionDialoguer(dialoguer), marcopoller.OptionPollVerifier(marcopoller.AlwaysValidPollVerifier{}))
 	require.NoError(t, err)
 
 	w := httptest.NewRecorder()
@@ -128,10 +147,10 @@ func TestValidNewPollFailureToPersistPollInfo(t *testing.T) {
 	mp.StartPoll(w, r)
 
 	resp := w.Result()
-	rbody, _ := ioutil.ReadAll(resp.Body)
 
-	assert.Equal(t, "failed to persist\n", string(rbody))
-	assert.Equal(t, 500, resp.StatusCode)
+	// Validate the immediate slack acknowledgement response is sent
+	assert.Equal(t, 200, resp.StatusCode)
+	assert.Equal(t, "{\"response_type\":\"ephemeral\",\"text\":\":warning: Error persisting poll. Please try again.\",\"replace_original\":false}", slackRequest)
 }
 
 func TestInvalidNewPollPayload(t *testing.T) {
@@ -150,7 +169,10 @@ func TestInvalidNewPollPayload(t *testing.T) {
 	verifier.On("Verify", r.Header, []byte(body)).Return(nil)
 	defer verifier.AssertExpectations(t)
 
-	mp, err := marcopoller.NewWithOptions(marcopoller.OptionVerifier(verifier), marcopoller.OptionUserFinder(userFinder), marcopoller.OptionStorer(storer), marcopoller.OptionPollVerifier(marcopoller.AlwaysValidPollVerifier{}))
+	dialoguer := &mmocks.Dialoguer{}
+	defer dialoguer.AssertExpectations(t)
+
+	mp, err := marcopoller.NewWithOptions(marcopoller.OptionVerifier(verifier), marcopoller.OptionUserFinder(userFinder), marcopoller.OptionStorer(storer), marcopoller.OptionDialoguer(dialoguer), marcopoller.OptionPollVerifier(marcopoller.AlwaysValidPollVerifier{}))
 	require.NoError(t, err)
 
 	w := httptest.NewRecorder()
@@ -180,12 +202,15 @@ func TestInvalidNewVotePayload(t *testing.T) {
 	verifier.On("Verify", r.Header, []byte(body)).Return(nil)
 	defer verifier.AssertExpectations(t)
 
-	mp, err := marcopoller.NewWithOptions(marcopoller.OptionVerifier(verifier), marcopoller.OptionUserFinder(userFinder), marcopoller.OptionStorer(storer), marcopoller.OptionPollVerifier(marcopoller.AlwaysValidPollVerifier{}))
+	dialoguer := &mmocks.Dialoguer{}
+	defer dialoguer.AssertExpectations(t)
+
+	mp, err := marcopoller.NewWithOptions(marcopoller.OptionVerifier(verifier), marcopoller.OptionUserFinder(userFinder), marcopoller.OptionStorer(storer), marcopoller.OptionDialoguer(dialoguer), marcopoller.OptionPollVerifier(marcopoller.AlwaysValidPollVerifier{}))
 	require.NoError(t, err)
 
 	w := httptest.NewRecorder()
 
-	mp.RegisterVote(w, r)
+	mp.HandleInteractions(w, r)
 
 	resp := w.Result()
 	rbody, _ := ioutil.ReadAll(resp.Body)
@@ -218,7 +243,10 @@ func TestNewPollWithWrongUsage(t *testing.T) {
 	verifier.On("Verify", r.Header, []byte(body)).Return(nil)
 	defer verifier.AssertExpectations(t)
 
-	mp, err := marcopoller.NewWithOptions(marcopoller.OptionVerifier(verifier), marcopoller.OptionUserFinder(userFinder), marcopoller.OptionStorer(storer), marcopoller.OptionPollVerifier(marcopoller.AlwaysValidPollVerifier{}))
+	dialoguer := &mmocks.Dialoguer{}
+	defer dialoguer.AssertExpectations(t)
+
+	mp, err := marcopoller.NewWithOptions(marcopoller.OptionVerifier(verifier), marcopoller.OptionUserFinder(userFinder), marcopoller.OptionStorer(storer), marcopoller.OptionDialoguer(dialoguer), marcopoller.OptionPollVerifier(marcopoller.AlwaysValidPollVerifier{}))
 	require.NoError(t, err)
 
 	w := httptest.NewRecorder()
@@ -246,7 +274,10 @@ func TestErrorReadingBodyOnNewPoll(t *testing.T) {
 
 	verifier := &Verifier{}
 
-	mp, err := marcopoller.NewWithOptions(marcopoller.OptionVerifier(verifier), marcopoller.OptionUserFinder(userFinder), marcopoller.OptionStorer(storer), marcopoller.OptionPollVerifier(marcopoller.AlwaysValidPollVerifier{}))
+	dialoguer := &mmocks.Dialoguer{}
+	defer dialoguer.AssertExpectations(t)
+
+	mp, err := marcopoller.NewWithOptions(marcopoller.OptionVerifier(verifier), marcopoller.OptionUserFinder(userFinder), marcopoller.OptionStorer(storer), marcopoller.OptionDialoguer(dialoguer), marcopoller.OptionPollVerifier(marcopoller.AlwaysValidPollVerifier{}))
 	require.NoError(t, err)
 
 	w := httptest.NewRecorder()
@@ -275,12 +306,15 @@ func TestErrorReadingBodyOnNewVote(t *testing.T) {
 
 	verifier := &Verifier{}
 
-	mp, err := marcopoller.NewWithOptions(marcopoller.OptionVerifier(verifier), marcopoller.OptionUserFinder(userFinder), marcopoller.OptionStorer(storer), marcopoller.OptionPollVerifier(marcopoller.AlwaysValidPollVerifier{}))
+	dialoguer := &mmocks.Dialoguer{}
+	defer dialoguer.AssertExpectations(t)
+
+	mp, err := marcopoller.NewWithOptions(marcopoller.OptionVerifier(verifier), marcopoller.OptionUserFinder(userFinder), marcopoller.OptionStorer(storer), marcopoller.OptionDialoguer(dialoguer), marcopoller.OptionPollVerifier(marcopoller.AlwaysValidPollVerifier{}))
 	require.NoError(t, err)
 
 	w := httptest.NewRecorder()
 
-	mp.RegisterVote(w, r)
+	mp.HandleInteractions(w, r)
 
 	resp := w.Result()
 	rbody, _ := ioutil.ReadAll(resp.Body)
@@ -301,7 +335,10 @@ func TestNewPollWithInvalidSlackSignature(t *testing.T) {
 	storer := &mocks.Storer{}
 	defer storer.AssertExpectations(t)
 
-	mp, err := marcopoller.NewWithOptions(marcopoller.OptionSlackVerifier("badSecret"), marcopoller.OptionUserFinder(userFinder), marcopoller.OptionStorer(storer), marcopoller.OptionPollVerifier(marcopoller.AlwaysValidPollVerifier{}))
+	dialoguer := &mmocks.Dialoguer{}
+	defer dialoguer.AssertExpectations(t)
+
+	mp, err := marcopoller.NewWithOptions(marcopoller.OptionSlackVerifier("badSecret"), marcopoller.OptionUserFinder(userFinder), marcopoller.OptionStorer(storer), marcopoller.OptionDialoguer(dialoguer), marcopoller.OptionPollVerifier(marcopoller.AlwaysValidPollVerifier{}))
 	require.NoError(t, err)
 
 	w := httptest.NewRecorder()
@@ -327,12 +364,15 @@ func TestNewVoteWithInvalidSlackSignature(t *testing.T) {
 	storer := &mocks.Storer{}
 	defer storer.AssertExpectations(t)
 
-	mp, err := marcopoller.NewWithOptions(marcopoller.OptionSlackVerifier("badSecret"), marcopoller.OptionUserFinder(userFinder), marcopoller.OptionStorer(storer), marcopoller.OptionPollVerifier(marcopoller.AlwaysValidPollVerifier{}))
+	dialoguer := &mmocks.Dialoguer{}
+	defer dialoguer.AssertExpectations(t)
+
+	mp, err := marcopoller.NewWithOptions(marcopoller.OptionSlackVerifier("badSecret"), marcopoller.OptionUserFinder(userFinder), marcopoller.OptionStorer(storer), marcopoller.OptionDialoguer(dialoguer), marcopoller.OptionPollVerifier(marcopoller.AlwaysValidPollVerifier{}))
 	require.NoError(t, err)
 
 	w := httptest.NewRecorder()
 
-	mp.RegisterVote(w, r)
+	mp.HandleInteractions(w, r)
 
 	resp := w.Result()
 	rbody, _ := ioutil.ReadAll(resp.Body)
@@ -350,7 +390,7 @@ func TestValidVoteUpdate(t *testing.T) {
 	}))
 	defer server.Close()
 
-	callback := marcopoller.Callback{User: slack.User{ID: "marco"}, ResponseURL: server.URL, Actions: []marcopoller.Action{marcopoller.Action{ActionID: "1566576557-poll1", Value: "1"}}}
+	callback := slack.InteractionCallback{Type: "block_actions", User: slack.User{ID: "marco"}, ResponseURL: server.URL, ActionCallback: slack.ActionCallbacks{BlockActions: []*slack.BlockAction{&slack.BlockAction{ActionID: "1566576557-poll1,vote", Value: "1"}}}}
 	callback.Channel.ID = "myLittleChannel"
 
 	payload, _ := json.Marshal(callback)
@@ -365,8 +405,8 @@ func TestValidVoteUpdate(t *testing.T) {
 	defer userFinder.AssertExpectations(t)
 
 	storer := &mocks.Storer{}
-	storer.On("GetSiloString", "1566576557-poll1", "pollInfo").Return("{\"id\":\"1566576557-poll1\",\"msgID\":{\"channelID\":\"myLittleChannel\",\"timestamp\":\"1566576557.354007\"},\"question\":\"To do or not to do?\",\"options\":[\"Do\",\"Not Do\"],\"creator\":\"UID\"}", nil)
-	storer.On("ScanSilo", "1566576557-poll1").Return(map[string]string{"pollInfo": "{\"id\":\"1566576557-poll1\",\"msgID\":{\"channelID\":\"myLittleChannel\",\"timestamp\":\"1566576557.354007\"},\"question\":\"To do or not to do?\",\"options\":[\"Do\",\"Not Do\"],\"creator\":\"UID\"}", "marco": "0"}, nil)
+	storer.On("GetSiloString", "1566576557-poll1", "pollInfo").Return("{\"id\":\"1566576557-poll1\",\"msgID\":{\"channelID\":\"myLittleChannel\",\"timestamp\":\"1566576557.354007\"},\"question\":\"To do or not to do?\",\"options\":[\"Do\",\"Not Do\"],\"features\":{\"multianswers\":false},\"creator\":\"UID\"}", nil)
+	storer.On("ScanSilo", "1566576557-poll1").Return(map[string]string{"pollInfo": "{\"id\":\"1566576557-poll1\",\"msgID\":{\"channelID\":\"myLittleChannel\",\"timestamp\":\"1566576557.354007\"},\"question\":\"To do or not to do?\",\"options\":[\"Do\",\"Not Do\"],\"features\":{\"multianswers\":false},\"creator\":\"UID\"}", "marco": "0"}, nil)
 	storer.On("PutSiloString", "1566576557-poll1", "marco", "1").Return(nil)
 	defer storer.AssertExpectations(t)
 
@@ -374,12 +414,15 @@ func TestValidVoteUpdate(t *testing.T) {
 	verifier.On("Verify", r.Header, []byte(body)).Return(nil)
 	defer verifier.AssertExpectations(t)
 
-	mp, err := marcopoller.NewWithOptions(marcopoller.OptionVerifier(verifier), marcopoller.OptionUserFinder(userFinder), marcopoller.OptionStorer(storer), marcopoller.OptionPollVerifier(marcopoller.AlwaysValidPollVerifier{}))
+	dialoguer := &mmocks.Dialoguer{}
+	defer dialoguer.AssertExpectations(t)
+
+	mp, err := marcopoller.NewWithOptions(marcopoller.OptionVerifier(verifier), marcopoller.OptionUserFinder(userFinder), marcopoller.OptionStorer(storer), marcopoller.OptionDialoguer(dialoguer), marcopoller.OptionPollVerifier(marcopoller.AlwaysValidPollVerifier{}))
 	require.NoError(t, err)
 
 	w := httptest.NewRecorder()
 
-	mp.RegisterVote(w, r)
+	mp.HandleInteractions(w, r)
 
 	resp := w.Result()
 	rbody, _ := ioutil.ReadAll(resp.Body)
@@ -399,7 +442,7 @@ func TestVoteOnExpiredPoll(t *testing.T) {
 	}))
 	defer server.Close()
 
-	callback := marcopoller.Callback{User: slack.User{ID: "marco"}, ResponseURL: server.URL, Actions: []marcopoller.Action{marcopoller.Action{ActionID: "1566576557-poll1", Value: "1", ActionTs: "1566580158"}}}
+	callback := slack.InteractionCallback{Type: "block_actions", User: slack.User{ID: "marco"}, ResponseURL: server.URL, ActionCallback: slack.ActionCallbacks{BlockActions: []*slack.BlockAction{&slack.BlockAction{ActionID: "1566576557-poll1,vote", Value: "1", ActionTs: "1566580158"}}}}
 	callback.Channel.ID = "myLittleChannel"
 
 	payload, _ := json.Marshal(callback)
@@ -419,12 +462,15 @@ func TestVoteOnExpiredPoll(t *testing.T) {
 	verifier.On("Verify", r.Header, []byte(body)).Return(nil)
 	defer verifier.AssertExpectations(t)
 
-	mp, err := marcopoller.NewWithOptions(marcopoller.OptionVerifier(verifier), marcopoller.OptionUserFinder(userFinder), marcopoller.OptionStorer(storer), marcopoller.OptionPollVerifier(marcopoller.ExpirationPollVerifier{ValidityPeriod: time.Duration(1) * time.Hour}))
+	dialoguer := &mmocks.Dialoguer{}
+	defer dialoguer.AssertExpectations(t)
+
+	mp, err := marcopoller.NewWithOptions(marcopoller.OptionVerifier(verifier), marcopoller.OptionUserFinder(userFinder), marcopoller.OptionStorer(storer), marcopoller.OptionDialoguer(dialoguer), marcopoller.OptionPollVerifier(marcopoller.ExpirationPollVerifier{ValidityPeriod: time.Duration(1) * time.Hour}))
 	require.NoError(t, err)
 
 	w := httptest.NewRecorder()
 
-	mp.RegisterVote(w, r)
+	mp.HandleInteractions(w, r)
 
 	resp := w.Result()
 	rbody, _ := ioutil.ReadAll(resp.Body)
@@ -444,7 +490,7 @@ func TestVoteOnPollUsingOldIdentifierFormat(t *testing.T) {
 	}))
 	defer server.Close()
 
-	callback := marcopoller.Callback{User: slack.User{ID: "marco"}, ResponseURL: server.URL, Actions: []marcopoller.Action{marcopoller.Action{ActionID: "poll1", Value: "1", ActionTs: "1566580158"}}}
+	callback := slack.InteractionCallback{Type: "block_actions", User: slack.User{ID: "marco"}, ResponseURL: server.URL, ActionCallback: slack.ActionCallbacks{BlockActions: []*slack.BlockAction{&slack.BlockAction{ActionID: "poll1,vote", Value: "1", ActionTs: "1566580158"}}}}
 	callback.Channel.ID = "myLittleChannel"
 
 	payload, _ := json.Marshal(callback)
@@ -464,12 +510,15 @@ func TestVoteOnPollUsingOldIdentifierFormat(t *testing.T) {
 	verifier.On("Verify", r.Header, []byte(body)).Return(nil)
 	defer verifier.AssertExpectations(t)
 
-	mp, err := marcopoller.NewWithOptions(marcopoller.OptionVerifier(verifier), marcopoller.OptionUserFinder(userFinder), marcopoller.OptionStorer(storer), marcopoller.OptionPollVerifier(marcopoller.ExpirationPollVerifier{ValidityPeriod: time.Duration(1) * time.Hour}))
+	dialoguer := &mmocks.Dialoguer{}
+	defer dialoguer.AssertExpectations(t)
+
+	mp, err := marcopoller.NewWithOptions(marcopoller.OptionVerifier(verifier), marcopoller.OptionUserFinder(userFinder), marcopoller.OptionStorer(storer), marcopoller.OptionDialoguer(dialoguer), marcopoller.OptionPollVerifier(marcopoller.ExpirationPollVerifier{ValidityPeriod: time.Duration(1) * time.Hour}))
 	require.NoError(t, err)
 
 	w := httptest.NewRecorder()
 
-	mp.RegisterVote(w, r)
+	mp.HandleInteractions(w, r)
 
 	resp := w.Result()
 	rbody, _ := ioutil.ReadAll(resp.Body)
@@ -481,7 +530,15 @@ func TestVoteOnPollUsingOldIdentifierFormat(t *testing.T) {
 }
 
 func TestErrorLoadingUserInfoOnVoteRegistration(t *testing.T) {
-	callback := marcopoller.Callback{User: slack.User{ID: "marco"}, Actions: []marcopoller.Action{marcopoller.Action{ActionID: "1566576557-poll1", Value: "1"}}}
+	slackRequest := ""
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		reqBody, _ := ioutil.ReadAll(r.Body)
+		slackRequest = string(reqBody)
+		fmt.Fprintln(w, "OK")
+	}))
+	defer server.Close()
+
+	callback := slack.InteractionCallback{Type: "block_actions", User: slack.User{ID: "marco"}, ResponseURL: server.URL, ActionCallback: slack.ActionCallbacks{BlockActions: []*slack.BlockAction{&slack.BlockAction{ActionID: "1566576557-poll1,vote", Value: "1"}}}}
 	callback.Channel.ID = "myLittleChannel"
 
 	payload, _ := json.Marshal(callback)
@@ -496,27 +553,29 @@ func TestErrorLoadingUserInfoOnVoteRegistration(t *testing.T) {
 	defer userFinder.AssertExpectations(t)
 
 	storer := &mocks.Storer{}
-	storer.On("GetSiloString", "1566576557-poll1", "pollInfo").Return("{\"id\":\"1566576557-poll1\",\"msgID\":{\"channelID\":\"myLittleChannel\",\"timestamp\":\"1566576557.354007\"},\"question\":\"To do or not to do?\",\"options\":[\"Do\",\"Not Do\"],\"creator\":\"UID\"}", nil)
+	storer.On("GetSiloString", "1566576557-poll1", "pollInfo").Return("{\"id\":\"1566576557-poll1\",\"msgID\":{\"channelID\":\"myLittleChannel\",\"timestamp\":\"1566576557.354007\"},\"question\":\"To do or not to do?\",\"options\":[\"Do\",\"Not Do\"],\"features\":{\"multianswers\":false},\"creator\":\"UID\"}", nil)
 	storer.On("PutSiloString", "1566576557-poll1", "marco", "1").Return(nil)
-	storer.On("ScanSilo", "1566576557-poll1").Return(map[string]string{"pollInfo": "{\"id\":\"1566576557-poll1\",\"msgID\":{\"channelID\":\"myLittleChannel\",\"timestamp\":\"1566576557.354007\"},\"question\":\"To do or not to do?\",\"options\":[\"Do\",\"Not Do\"],\"creator\":\"UID\"}", "marco": "0"}, nil)
+	storer.On("ScanSilo", "1566576557-poll1").Return(map[string]string{"pollInfo": "{\"id\":\"1566576557-poll1\",\"msgID\":{\"channelID\":\"myLittleChannel\",\"timestamp\":\"1566576557.354007\"},\"question\":\"To do or not to do?\",\"options\":[\"Do\",\"Not Do\"],\"features\":{\"multianswers\":false},\"creator\":\"UID\"}", "marco": "0"}, nil)
 	defer storer.AssertExpectations(t)
 
 	verifier := &Verifier{}
 	verifier.On("Verify", r.Header, []byte(body)).Return(nil)
 	defer verifier.AssertExpectations(t)
 
-	mp, err := marcopoller.NewWithOptions(marcopoller.OptionVerifier(verifier), marcopoller.OptionUserFinder(userFinder), marcopoller.OptionStorer(storer), marcopoller.OptionPollVerifier(marcopoller.AlwaysValidPollVerifier{}))
+	dialoguer := &mmocks.Dialoguer{}
+	defer dialoguer.AssertExpectations(t)
+
+	mp, err := marcopoller.NewWithOptions(marcopoller.OptionVerifier(verifier), marcopoller.OptionUserFinder(userFinder), marcopoller.OptionStorer(storer), marcopoller.OptionDialoguer(dialoguer), marcopoller.OptionPollVerifier(marcopoller.AlwaysValidPollVerifier{}))
 	require.NoError(t, err)
 
 	w := httptest.NewRecorder()
 
-	mp.RegisterVote(w, r)
+	mp.HandleInteractions(w, r)
 
 	resp := w.Result()
-	rbody, _ := ioutil.ReadAll(resp.Body)
 
-	assert.Equal(t, "can't get user info\n", string(rbody))
-	assert.Equal(t, 500, resp.StatusCode)
+	assert.Equal(t, 200, resp.StatusCode)
+	assert.Equal(t, "{\"response_type\":\"ephemeral\",\"text\":\":warning: Error listing votes for poll. Please try again.\",\"replace_original\":false}", slackRequest)
 }
 
 func TestValidNewVote(t *testing.T) {
@@ -528,7 +587,7 @@ func TestValidNewVote(t *testing.T) {
 	}))
 	defer server.Close()
 
-	callback := marcopoller.Callback{User: slack.User{ID: "marco"}, ResponseURL: server.URL, Actions: []marcopoller.Action{marcopoller.Action{ActionID: "1566576557-poll1", Value: "1"}}}
+	callback := slack.InteractionCallback{Type: "block_actions", User: slack.User{ID: "marco"}, ResponseURL: server.URL, ActionCallback: slack.ActionCallbacks{BlockActions: []*slack.BlockAction{&slack.BlockAction{ActionID: "1566576557-poll1,vote", Value: "1"}}}}
 	callback.Channel.ID = "myLittleChannel"
 
 	payload, _ := json.Marshal(callback)
@@ -542,8 +601,8 @@ func TestValidNewVote(t *testing.T) {
 	defer userFinder.AssertExpectations(t)
 
 	storer := &mocks.Storer{}
-	storer.On("GetSiloString", "1566576557-poll1", "pollInfo").Return("{\"id\":\"1566576557-poll1\",\"msgID\":{\"channelID\":\"myLittleChannel\",\"timestamp\":\"1566576557.354007\"},\"question\":\"To do or not to do?\",\"options\":[\"Do\",\"Not Do\"],\"creator\":\"UID\"}", nil)
-	storer.On("ScanSilo", "1566576557-poll1").Return(map[string]string{"pollInfo": "{\"id\":\"1566576557-poll1\",\"msgID\":{\"channelID\":\"myLittleChannel\",\"timestamp\":\"1566576557.354007\"},\"question\":\"To do or not to do?\",\"options\":[\"Do\",\"Not Do\"],\"creator\":\"UID\"}"}, nil)
+	storer.On("GetSiloString", "1566576557-poll1", "pollInfo").Return("{\"id\":\"1566576557-poll1\",\"msgID\":{\"channelID\":\"myLittleChannel\",\"timestamp\":\"1566576557.354007\"},\"question\":\"To do or not to do?\",\"options\":[\"Do\",\"Not Do\"],\"features\":{\"multianswers\":false},\"creator\":\"UID\"}", nil)
+	storer.On("ScanSilo", "1566576557-poll1").Return(map[string]string{"pollInfo": "{\"id\":\"1566576557-poll1\",\"msgID\":{\"channelID\":\"myLittleChannel\",\"timestamp\":\"1566576557.354007\"},\"question\":\"To do or not to do?\",\"options\":[\"Do\",\"Not Do\"],\"features\":{\"multianswers\":false},\"creator\":\"UID\"}"}, nil)
 	storer.On("PutSiloString", "1566576557-poll1", "marco", "1").Return(nil)
 	defer storer.AssertExpectations(t)
 
@@ -551,12 +610,15 @@ func TestValidNewVote(t *testing.T) {
 	verifier.On("Verify", r.Header, []byte(body)).Return(nil)
 	defer verifier.AssertExpectations(t)
 
-	mp, err := marcopoller.NewWithOptions(marcopoller.OptionVerifier(verifier), marcopoller.OptionUserFinder(userFinder), marcopoller.OptionStorer(storer), marcopoller.OptionPollVerifier(marcopoller.AlwaysValidPollVerifier{}))
+	dialoguer := &mmocks.Dialoguer{}
+	defer dialoguer.AssertExpectations(t)
+
+	mp, err := marcopoller.NewWithOptions(marcopoller.OptionVerifier(verifier), marcopoller.OptionUserFinder(userFinder), marcopoller.OptionStorer(storer), marcopoller.OptionDialoguer(dialoguer), marcopoller.OptionPollVerifier(marcopoller.AlwaysValidPollVerifier{}))
 	require.NoError(t, err)
 
 	w := httptest.NewRecorder()
 
-	mp.RegisterVote(w, r)
+	mp.HandleInteractions(w, r)
 
 	resp := w.Result()
 	rbody, _ := ioutil.ReadAll(resp.Body)
@@ -568,7 +630,15 @@ func TestValidNewVote(t *testing.T) {
 }
 
 func TestValidNewVoteFailureToLoadPoll(t *testing.T) {
-	callback := marcopoller.Callback{User: slack.User{ID: "marco"}, Actions: []marcopoller.Action{marcopoller.Action{ActionID: "1566576557-poll1", Value: "1"}}}
+	slackRequest := ""
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		reqBody, _ := ioutil.ReadAll(r.Body)
+		slackRequest = string(reqBody)
+		fmt.Fprintln(w, "OK")
+	}))
+	defer server.Close()
+
+	callback := slack.InteractionCallback{Type: "block_actions", User: slack.User{ID: "marco"}, ResponseURL: server.URL, ActionCallback: slack.ActionCallbacks{BlockActions: []*slack.BlockAction{&slack.BlockAction{ActionID: "1566576557-poll1,vote", Value: "1"}}}}
 	callback.Channel.ID = "myLittleChannel"
 
 	payload, _ := json.Marshal(callback)
@@ -589,22 +659,32 @@ func TestValidNewVoteFailureToLoadPoll(t *testing.T) {
 	verifier.On("Verify", r.Header, []byte(body)).Return(nil)
 	defer verifier.AssertExpectations(t)
 
-	mp, err := marcopoller.NewWithOptions(marcopoller.OptionVerifier(verifier), marcopoller.OptionUserFinder(userFinder), marcopoller.OptionStorer(storer), marcopoller.OptionPollVerifier(marcopoller.AlwaysValidPollVerifier{}))
+	dialoguer := &mmocks.Dialoguer{}
+	defer dialoguer.AssertExpectations(t)
+
+	mp, err := marcopoller.NewWithOptions(marcopoller.OptionVerifier(verifier), marcopoller.OptionUserFinder(userFinder), marcopoller.OptionStorer(storer), marcopoller.OptionDialoguer(dialoguer), marcopoller.OptionPollVerifier(marcopoller.AlwaysValidPollVerifier{}))
 	require.NoError(t, err)
 
 	w := httptest.NewRecorder()
 
-	mp.RegisterVote(w, r)
+	mp.HandleInteractions(w, r)
 
 	resp := w.Result()
-	rbody, _ := ioutil.ReadAll(resp.Body)
 
-	assert.Equal(t, "failed to load\n", string(rbody))
-	assert.Equal(t, 500, resp.StatusCode)
+	assert.Equal(t, 200, resp.StatusCode)
+	assert.Equal(t, "{\"response_type\":\"ephemeral\",\"text\":\":warning: Error getting existing poll info. Please try again.\",\"replace_original\":false}", slackRequest)
 }
 
 func TestNewVoteInvalidStoredPollInfo(t *testing.T) {
-	callback := marcopoller.Callback{User: slack.User{ID: "marco"}, Actions: []marcopoller.Action{marcopoller.Action{ActionID: "1566576557-poll1", Value: "1"}}}
+	slackRequest := ""
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		reqBody, _ := ioutil.ReadAll(r.Body)
+		slackRequest = string(reqBody)
+		fmt.Fprintln(w, "OK")
+	}))
+	defer server.Close()
+
+	callback := slack.InteractionCallback{Type: "block_actions", User: slack.User{ID: "marco"}, ResponseURL: server.URL, ActionCallback: slack.ActionCallbacks{BlockActions: []*slack.BlockAction{&slack.BlockAction{ActionID: "1566576557-poll1,vote", Value: "1"}}}}
 	callback.Channel.ID = "myLittleChannel"
 
 	payload, _ := json.Marshal(callback)
@@ -625,22 +705,32 @@ func TestNewVoteInvalidStoredPollInfo(t *testing.T) {
 	verifier.On("Verify", r.Header, []byte(body)).Return(nil)
 	defer verifier.AssertExpectations(t)
 
-	mp, err := marcopoller.NewWithOptions(marcopoller.OptionVerifier(verifier), marcopoller.OptionUserFinder(userFinder), marcopoller.OptionStorer(storer), marcopoller.OptionPollVerifier(marcopoller.AlwaysValidPollVerifier{}))
+	dialoguer := &mmocks.Dialoguer{}
+	defer dialoguer.AssertExpectations(t)
+
+	mp, err := marcopoller.NewWithOptions(marcopoller.OptionVerifier(verifier), marcopoller.OptionUserFinder(userFinder), marcopoller.OptionStorer(storer), marcopoller.OptionDialoguer(dialoguer), marcopoller.OptionPollVerifier(marcopoller.AlwaysValidPollVerifier{}))
 	require.NoError(t, err)
 
 	w := httptest.NewRecorder()
 
-	mp.RegisterVote(w, r)
+	mp.HandleInteractions(w, r)
 
 	resp := w.Result()
-	rbody, _ := ioutil.ReadAll(resp.Body)
 
-	assert.Equal(t, "invalid character 'c' looking for beginning of value\n", string(rbody))
-	assert.Equal(t, 500, resp.StatusCode)
+	assert.Equal(t, 200, resp.StatusCode)
+	assert.Equal(t, "{\"response_type\":\"ephemeral\",\"text\":\":warning: Error parsing existing poll info. Please report this issue at https://github.com/alexandre-normand/marcopoller\",\"replace_original\":false}", slackRequest)
 }
 
 func TestErrorStoringNewVote(t *testing.T) {
-	callback := marcopoller.Callback{User: slack.User{ID: "marco"}, Actions: []marcopoller.Action{marcopoller.Action{ActionID: "1566576557-poll1", Value: "1"}}}
+	slackRequest := ""
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		reqBody, _ := ioutil.ReadAll(r.Body)
+		slackRequest = string(reqBody)
+		fmt.Fprintln(w, "OK")
+	}))
+	defer server.Close()
+
+	callback := slack.InteractionCallback{Type: "block_actions", User: slack.User{ID: "marco"}, ResponseURL: server.URL, ActionCallback: slack.ActionCallbacks{BlockActions: []*slack.BlockAction{&slack.BlockAction{ActionID: "1566576557-poll1,vote", Value: "1"}}}}
 	callback.Channel.ID = "myLittleChannel"
 
 	payload, _ := json.Marshal(callback)
@@ -654,7 +744,7 @@ func TestErrorStoringNewVote(t *testing.T) {
 	defer userFinder.AssertExpectations(t)
 
 	storer := &mocks.Storer{}
-	storer.On("GetSiloString", "1566576557-poll1", "pollInfo").Return("{\"id\":\"1566576557-poll1\",\"msgID\":{\"channelID\":\"myLittleChannel\",\"timestamp\":\"1566576557.354007\"},\"question\":\"To do or not to do?\",\"options\":[\"Do\",\"Not Do\"],\"creator\":\"UID\"}", nil)
+	storer.On("GetSiloString", "1566576557-poll1", "pollInfo").Return("{\"id\":\"1566576557-poll1\",\"msgID\":{\"channelID\":\"myLittleChannel\",\"timestamp\":\"1566576557.354007\"},\"question\":\"To do or not to do?\",\"options\":[\"Do\",\"Not Do\"],\"features\":{\"multianswers\":false},\"creator\":\"UID\"}", nil)
 	storer.On("PutSiloString", "1566576557-poll1", "marco", "1").Return(fmt.Errorf("failed to put new vote"))
 	defer storer.AssertExpectations(t)
 
@@ -662,22 +752,32 @@ func TestErrorStoringNewVote(t *testing.T) {
 	verifier.On("Verify", r.Header, []byte(body)).Return(nil)
 	defer verifier.AssertExpectations(t)
 
-	mp, err := marcopoller.NewWithOptions(marcopoller.OptionVerifier(verifier), marcopoller.OptionUserFinder(userFinder), marcopoller.OptionStorer(storer), marcopoller.OptionPollVerifier(marcopoller.AlwaysValidPollVerifier{}))
+	dialoguer := &mmocks.Dialoguer{}
+	defer dialoguer.AssertExpectations(t)
+
+	mp, err := marcopoller.NewWithOptions(marcopoller.OptionVerifier(verifier), marcopoller.OptionUserFinder(userFinder), marcopoller.OptionStorer(storer), marcopoller.OptionDialoguer(dialoguer), marcopoller.OptionPollVerifier(marcopoller.AlwaysValidPollVerifier{}))
 	require.NoError(t, err)
 
 	w := httptest.NewRecorder()
 
-	mp.RegisterVote(w, r)
+	mp.HandleInteractions(w, r)
 
 	resp := w.Result()
-	rbody, _ := ioutil.ReadAll(resp.Body)
 
-	assert.Equal(t, "failed to put new vote\n", string(rbody))
-	assert.Equal(t, 500, resp.StatusCode)
+	assert.Equal(t, 200, resp.StatusCode)
+	assert.Equal(t, "{\"response_type\":\"ephemeral\",\"text\":\":warning: Error persisting vote. Please try again.\",\"replace_original\":false}", slackRequest)
 }
 
 func TestErrorListingVotesOnNewVote(t *testing.T) {
-	callback := marcopoller.Callback{User: slack.User{ID: "marco"}, Actions: []marcopoller.Action{marcopoller.Action{ActionID: "1566576557-poll1", Value: "1"}}}
+	slackRequest := ""
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		reqBody, _ := ioutil.ReadAll(r.Body)
+		slackRequest = string(reqBody)
+		fmt.Fprintln(w, "OK")
+	}))
+	defer server.Close()
+
+	callback := slack.InteractionCallback{Type: "block_actions", User: slack.User{ID: "marco"}, ResponseURL: server.URL, ActionCallback: slack.ActionCallbacks{BlockActions: []*slack.BlockAction{&slack.BlockAction{ActionID: "1566576557-poll1,vote", Value: "1"}}}}
 	callback.Channel.ID = "myLittleChannel"
 
 	payload, _ := json.Marshal(callback)
@@ -691,7 +791,7 @@ func TestErrorListingVotesOnNewVote(t *testing.T) {
 	defer userFinder.AssertExpectations(t)
 
 	storer := &mocks.Storer{}
-	storer.On("GetSiloString", "1566576557-poll1", "pollInfo").Return("{\"id\":\"1566576557-poll1\",\"msgID\":{\"channelID\":\"myLittleChannel\",\"timestamp\":\"1566576557.354007\"},\"question\":\"To do or not to do?\",\"options\":[\"Do\",\"Not Do\"],\"creator\":\"UID\"}", nil)
+	storer.On("GetSiloString", "1566576557-poll1", "pollInfo").Return("{\"id\":\"1566576557-poll1\",\"msgID\":{\"channelID\":\"myLittleChannel\",\"timestamp\":\"1566576557.354007\"},\"question\":\"To do or not to do?\",\"options\":[\"Do\",\"Not Do\"],\"features\":{\"multianswers\":false},\"creator\":\"UID\"}", nil)
 	storer.On("PutSiloString", "1566576557-poll1", "marco", "1").Return(nil)
 	storer.On("ScanSilo", "1566576557-poll1").Return(map[string]string{}, fmt.Errorf("failed to load votes"))
 	defer storer.AssertExpectations(t)
@@ -700,28 +800,38 @@ func TestErrorListingVotesOnNewVote(t *testing.T) {
 	verifier.On("Verify", r.Header, []byte(body)).Return(nil)
 	defer verifier.AssertExpectations(t)
 
-	mp, err := marcopoller.NewWithOptions(marcopoller.OptionVerifier(verifier), marcopoller.OptionUserFinder(userFinder), marcopoller.OptionStorer(storer), marcopoller.OptionPollVerifier(marcopoller.AlwaysValidPollVerifier{}))
+	dialoguer := &mmocks.Dialoguer{}
+	defer dialoguer.AssertExpectations(t)
+
+	mp, err := marcopoller.NewWithOptions(marcopoller.OptionVerifier(verifier), marcopoller.OptionUserFinder(userFinder), marcopoller.OptionStorer(storer), marcopoller.OptionDialoguer(dialoguer), marcopoller.OptionPollVerifier(marcopoller.AlwaysValidPollVerifier{}))
 	require.NoError(t, err)
 
 	w := httptest.NewRecorder()
 
-	mp.RegisterVote(w, r)
+	mp.HandleInteractions(w, r)
 
 	resp := w.Result()
-	rbody, _ := ioutil.ReadAll(resp.Body)
 
-	assert.Equal(t, "failed to load votes\n", string(rbody))
-	assert.Equal(t, 500, resp.StatusCode)
+	assert.Equal(t, 200, resp.StatusCode)
+	assert.Equal(t, "{\"response_type\":\"ephemeral\",\"text\":\":warning: Error listing votes for poll. Please try again.\",\"replace_original\":false}", slackRequest)
 }
 
 func TestErrorUpdatingMessageOnNewVote(t *testing.T) {
+	lastRequest := ""
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusServiceUnavailable)
-		w.Write([]byte("can't update message"))
+		reqBody, _ := ioutil.ReadAll(r.Body)
+		lastRequest = string(reqBody)
+		// Reject the ephemeral user message requests but let the others succeed
+		if !strings.Contains(lastRequest, "ephemeral") {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			w.Write([]byte("can't update message"))
+		} else {
+			fmt.Fprintln(w, "OK")
+		}
 	}))
 	defer server.Close()
 
-	callback := marcopoller.Callback{User: slack.User{ID: "marco"}, ResponseURL: server.URL, Actions: []marcopoller.Action{marcopoller.Action{ActionID: "1566576557-poll1", Value: "1"}}}
+	callback := slack.InteractionCallback{Type: "block_actions", User: slack.User{ID: "marco"}, ResponseURL: server.URL, ActionCallback: slack.ActionCallbacks{BlockActions: []*slack.BlockAction{&slack.BlockAction{ActionID: "1566576557-poll1,vote", Value: "1"}}}}
 	callback.Channel.ID = "myLittleChannel"
 
 	payload, _ := json.Marshal(callback)
@@ -735,8 +845,8 @@ func TestErrorUpdatingMessageOnNewVote(t *testing.T) {
 	defer userFinder.AssertExpectations(t)
 
 	storer := &mocks.Storer{}
-	storer.On("GetSiloString", "1566576557-poll1", "pollInfo").Return("{\"id\":\"1566576557-poll1\",\"msgID\":{\"channelID\":\"myLittleChannel\",\"timestamp\":\"1566576557.354007\"},\"question\":\"To do or not to do?\",\"options\":[\"Do\",\"Not Do\"],\"creator\":\"UID\"}", nil)
-	storer.On("ScanSilo", "1566576557-poll1").Return(map[string]string{"pollInfo": "{\"id\":\"1566576557-poll1\",\"msgID\":{\"channelID\":\"myLittleChannel\",\"timestamp\":\"1566576557.354007\"},\"question\":\"To do or not to do?\",\"options\":[\"Do\",\"Not Do\"],\"creator\":\"UID\"}"}, nil)
+	storer.On("GetSiloString", "1566576557-poll1", "pollInfo").Return("{\"id\":\"1566576557-poll1\",\"msgID\":{\"channelID\":\"myLittleChannel\",\"timestamp\":\"1566576557.354007\"},\"question\":\"To do or not to do?\",\"options\":[\"Do\",\"Not Do\"],\"features\":{\"multianswers\":false},\"creator\":\"UID\"}", nil)
+	storer.On("ScanSilo", "1566576557-poll1").Return(map[string]string{"pollInfo": "{\"id\":\"1566576557-poll1\",\"msgID\":{\"channelID\":\"myLittleChannel\",\"timestamp\":\"1566576557.354007\"},\"question\":\"To do or not to do?\",\"options\":[\"Do\",\"Not Do\"],\"features\":{\"multianswers\":false},\"creator\":\"UID\"}"}, nil)
 	storer.On("PutSiloString", "1566576557-poll1", "marco", "1").Return(nil)
 	defer storer.AssertExpectations(t)
 
@@ -744,18 +854,20 @@ func TestErrorUpdatingMessageOnNewVote(t *testing.T) {
 	verifier.On("Verify", r.Header, []byte(body)).Return(nil)
 	defer verifier.AssertExpectations(t)
 
-	mp, err := marcopoller.NewWithOptions(marcopoller.OptionVerifier(verifier), marcopoller.OptionUserFinder(userFinder), marcopoller.OptionStorer(storer), marcopoller.OptionPollVerifier(marcopoller.AlwaysValidPollVerifier{}))
+	dialoguer := &mmocks.Dialoguer{}
+	defer dialoguer.AssertExpectations(t)
+
+	mp, err := marcopoller.NewWithOptions(marcopoller.OptionVerifier(verifier), marcopoller.OptionUserFinder(userFinder), marcopoller.OptionStorer(storer), marcopoller.OptionDialoguer(dialoguer), marcopoller.OptionPollVerifier(marcopoller.AlwaysValidPollVerifier{}))
 	require.NoError(t, err)
 
 	w := httptest.NewRecorder()
 
-	mp.RegisterVote(w, r)
+	mp.HandleInteractions(w, r)
 
 	resp := w.Result()
-	rbody, _ := ioutil.ReadAll(resp.Body)
 
-	assert.Equal(t, "can't update message\n", string(rbody))
-	assert.Equal(t, 500, resp.StatusCode)
+	assert.Equal(t, 200, resp.StatusCode)
+	assert.Equal(t, "{\"response_type\":\"ephemeral\",\"text\":\":warning: Error updating slack message for poll. Please try again.\",\"replace_original\":false}", lastRequest)
 }
 
 func TestNewVoteEmptyPayload(t *testing.T) {
@@ -774,12 +886,15 @@ func TestNewVoteEmptyPayload(t *testing.T) {
 	verifier.On("Verify", r.Header, []byte(body)).Return(nil)
 	defer verifier.AssertExpectations(t)
 
-	mp, err := marcopoller.NewWithOptions(marcopoller.OptionVerifier(verifier), marcopoller.OptionUserFinder(userFinder), marcopoller.OptionStorer(storer), marcopoller.OptionPollVerifier(marcopoller.AlwaysValidPollVerifier{}))
+	dialoguer := &mmocks.Dialoguer{}
+	defer dialoguer.AssertExpectations(t)
+
+	mp, err := marcopoller.NewWithOptions(marcopoller.OptionVerifier(verifier), marcopoller.OptionUserFinder(userFinder), marcopoller.OptionStorer(storer), marcopoller.OptionDialoguer(dialoguer), marcopoller.OptionPollVerifier(marcopoller.AlwaysValidPollVerifier{}))
 	require.NoError(t, err)
 
 	w := httptest.NewRecorder()
 
-	mp.RegisterVote(w, r)
+	mp.HandleInteractions(w, r)
 
 	resp := w.Result()
 	rbody, _ := ioutil.ReadAll(resp.Body)
@@ -804,12 +919,15 @@ func TestNewVoteInvalidCallback(t *testing.T) {
 	verifier.On("Verify", r.Header, []byte(body)).Return(nil)
 	defer verifier.AssertExpectations(t)
 
-	mp, err := marcopoller.NewWithOptions(marcopoller.OptionVerifier(verifier), marcopoller.OptionUserFinder(userFinder), marcopoller.OptionStorer(storer), marcopoller.OptionPollVerifier(marcopoller.AlwaysValidPollVerifier{}))
+	dialoguer := &mmocks.Dialoguer{}
+	defer dialoguer.AssertExpectations(t)
+
+	mp, err := marcopoller.NewWithOptions(marcopoller.OptionVerifier(verifier), marcopoller.OptionUserFinder(userFinder), marcopoller.OptionStorer(storer), marcopoller.OptionDialoguer(dialoguer), marcopoller.OptionPollVerifier(marcopoller.AlwaysValidPollVerifier{}))
 	require.NoError(t, err)
 
 	w := httptest.NewRecorder()
 
-	mp.RegisterVote(w, r)
+	mp.HandleInteractions(w, r)
 
 	resp := w.Result()
 	rbody, _ := ioutil.ReadAll(resp.Body)
@@ -827,7 +945,7 @@ func TestDeletePoll(t *testing.T) {
 	}))
 	defer server.Close()
 
-	callback := marcopoller.Callback{User: slack.User{ID: "marco"}, ResponseURL: server.URL, Actions: []marcopoller.Action{marcopoller.Action{ActionID: "1566576557-poll1", Value: "delete"}}}
+	callback := slack.InteractionCallback{Type: "block_actions", User: slack.User{ID: "marco"}, ResponseURL: server.URL, ActionCallback: slack.ActionCallbacks{BlockActions: []*slack.BlockAction{&slack.BlockAction{ActionID: "1566576557-poll1,delete", Value: "delete"}}}}
 	callback.Channel.ID = "myLittleChannel"
 
 	payload, _ := json.Marshal(callback)
@@ -841,8 +959,8 @@ func TestDeletePoll(t *testing.T) {
 	defer userFinder.AssertExpectations(t)
 
 	storer := &mocks.Storer{}
-	storer.On("GetSiloString", "1566576557-poll1", "pollInfo").Return("{\"id\":\"1566576557-poll1\",\"msgID\":{\"channelID\":\"myLittleChannel\",\"timestamp\":\"1566576557.354007\"},\"question\":\"To do or not to do?\",\"options\":[\"Do\",\"Not Do\"],\"creator\":\"marco\"}", nil)
-	storer.On("ScanSilo", "1566576557-poll1").Return(map[string]string{"pollInfo": "{\"id\":\"1566576557-poll1\",\"msgID\":{\"channelID\":\"myLittleChannel\",\"timestamp\":\"1566576557.354007\"},\"question\":\"To do or not to do?\",\"options\":[\"Do\",\"Not Do\"],\"creator\":\"UID\"}", "marco": "0"}, nil)
+	storer.On("GetSiloString", "1566576557-poll1", "pollInfo").Return("{\"id\":\"1566576557-poll1\",\"msgID\":{\"channelID\":\"myLittleChannel\",\"timestamp\":\"1566576557.354007\"},\"question\":\"To do or not to do?\",\"options\":[\"Do\",\"Not Do\"],\"features\":{\"multianswers\":false},\"creator\":\"marco\"}", nil)
+	storer.On("ScanSilo", "1566576557-poll1").Return(map[string]string{"pollInfo": "{\"id\":\"1566576557-poll1\",\"msgID\":{\"channelID\":\"myLittleChannel\",\"timestamp\":\"1566576557.354007\"},\"question\":\"To do or not to do?\",\"options\":[\"Do\",\"Not Do\"],\"features\":{\"multianswers\":false},\"creator\":\"UID\"}", "marco": "0"}, nil)
 	storer.On("DeleteSiloString", "1566576557-poll1", "pollInfo").Return(nil)
 	storer.On("DeleteSiloString", "1566576557-poll1", "marco").Return(nil)
 	defer storer.AssertExpectations(t)
@@ -851,12 +969,15 @@ func TestDeletePoll(t *testing.T) {
 	verifier.On("Verify", r.Header, []byte(body)).Return(nil)
 	defer verifier.AssertExpectations(t)
 
-	mp, err := marcopoller.NewWithOptions(marcopoller.OptionVerifier(verifier), marcopoller.OptionUserFinder(userFinder), marcopoller.OptionStorer(storer), marcopoller.OptionPollVerifier(marcopoller.AlwaysValidPollVerifier{}))
+	dialoguer := &mmocks.Dialoguer{}
+	defer dialoguer.AssertExpectations(t)
+
+	mp, err := marcopoller.NewWithOptions(marcopoller.OptionVerifier(verifier), marcopoller.OptionUserFinder(userFinder), marcopoller.OptionStorer(storer), marcopoller.OptionDialoguer(dialoguer), marcopoller.OptionPollVerifier(marcopoller.AlwaysValidPollVerifier{}))
 	require.NoError(t, err)
 
 	w := httptest.NewRecorder()
 
-	mp.RegisterVote(w, r)
+	mp.HandleInteractions(w, r)
 
 	resp := w.Result()
 	rbody, _ := ioutil.ReadAll(resp.Body)
@@ -868,13 +989,21 @@ func TestDeletePoll(t *testing.T) {
 }
 
 func TestDeletePollFailedToDeleteMsg(t *testing.T) {
+	lastRequest := ""
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusServiceUnavailable)
-		w.Write([]byte("failed to delete"))
+		reqBody, _ := ioutil.ReadAll(r.Body)
+		lastRequest = string(reqBody)
+		// Reject the ephemeral user message requests but let the others succeed
+		if !strings.Contains(lastRequest, "ephemeral") {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			w.Write([]byte("failed to delete"))
+		} else {
+			fmt.Fprintln(w, "OK")
+		}
 	}))
 	defer server.Close()
 
-	callback := marcopoller.Callback{User: slack.User{ID: "marco"}, ResponseURL: server.URL, Actions: []marcopoller.Action{marcopoller.Action{ActionID: "1566576557-poll1", Value: "delete"}}}
+	callback := slack.InteractionCallback{Type: "block_actions", User: slack.User{ID: "marco"}, ResponseURL: server.URL, ActionCallback: slack.ActionCallbacks{BlockActions: []*slack.BlockAction{&slack.BlockAction{ActionID: "1566576557-poll1,delete", Value: "delete"}}}}
 	callback.Channel.ID = "myLittleChannel"
 
 	payload, _ := json.Marshal(callback)
@@ -888,8 +1017,8 @@ func TestDeletePollFailedToDeleteMsg(t *testing.T) {
 	defer userFinder.AssertExpectations(t)
 
 	storer := &mocks.Storer{}
-	storer.On("GetSiloString", "1566576557-poll1", "pollInfo").Return("{\"id\":\"1566576557-poll1\",\"msgID\":{\"channelID\":\"myLittleChannel\",\"timestamp\":\"1566576557.354007\"},\"question\":\"To do or not to do?\",\"options\":[\"Do\",\"Not Do\"],\"creator\":\"marco\"}", nil)
-	storer.On("ScanSilo", "1566576557-poll1").Return(map[string]string{"pollInfo": "{\"id\":\"1566576557-poll1\",\"msgID\":{\"channelID\":\"myLittleChannel\",\"timestamp\":\"1566576557.354007\"},\"question\":\"To do or not to do?\",\"options\":[\"Do\",\"Not Do\"],\"creator\":\"UID\"}"}, nil)
+	storer.On("GetSiloString", "1566576557-poll1", "pollInfo").Return("{\"id\":\"1566576557-poll1\",\"msgID\":{\"channelID\":\"myLittleChannel\",\"timestamp\":\"1566576557.354007\"},\"question\":\"To do or not to do?\",\"options\":[\"Do\",\"Not Do\"],\"features\":{\"multianswers\":false},\"creator\":\"marco\"}", nil)
+	storer.On("ScanSilo", "1566576557-poll1").Return(map[string]string{"pollInfo": "{\"id\":\"1566576557-poll1\",\"msgID\":{\"channelID\":\"myLittleChannel\",\"timestamp\":\"1566576557.354007\"},\"question\":\"To do or not to do?\",\"options\":[\"Do\",\"Not Do\"],\"features\":{\"multianswers\":false},\"creator\":\"UID\"}"}, nil)
 	storer.On("DeleteSiloString", "1566576557-poll1", "pollInfo").Return(nil)
 	defer storer.AssertExpectations(t)
 
@@ -897,22 +1026,32 @@ func TestDeletePollFailedToDeleteMsg(t *testing.T) {
 	verifier.On("Verify", r.Header, []byte(body)).Return(nil)
 	defer verifier.AssertExpectations(t)
 
-	mp, err := marcopoller.NewWithOptions(marcopoller.OptionVerifier(verifier), marcopoller.OptionUserFinder(userFinder), marcopoller.OptionStorer(storer), marcopoller.OptionPollVerifier(marcopoller.AlwaysValidPollVerifier{}))
+	dialoguer := &mmocks.Dialoguer{}
+	defer dialoguer.AssertExpectations(t)
+
+	mp, err := marcopoller.NewWithOptions(marcopoller.OptionVerifier(verifier), marcopoller.OptionUserFinder(userFinder), marcopoller.OptionStorer(storer), marcopoller.OptionDialoguer(dialoguer), marcopoller.OptionPollVerifier(marcopoller.AlwaysValidPollVerifier{}))
 	require.NoError(t, err)
 
 	w := httptest.NewRecorder()
 
-	mp.RegisterVote(w, r)
+	mp.HandleInteractions(w, r)
 
 	resp := w.Result()
-	rbody, _ := ioutil.ReadAll(resp.Body)
 
-	assert.Equal(t, "failed to delete\n", string(rbody))
-	assert.Equal(t, 500, resp.StatusCode)
+	assert.Equal(t, 200, resp.StatusCode)
+	assert.Equal(t, "{\"response_type\":\"ephemeral\",\"text\":\":warning: Error deleting message from slack\",\"replace_original\":false}", lastRequest)
 }
 
 func TestDeletePollFailedToDeleteStoredData(t *testing.T) {
-	callback := marcopoller.Callback{User: slack.User{ID: "marco"}, Actions: []marcopoller.Action{marcopoller.Action{ActionID: "1566576557-poll1", Value: "delete"}}}
+	slackRequest := ""
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		reqBody, _ := ioutil.ReadAll(r.Body)
+		slackRequest = string(reqBody)
+		fmt.Fprintln(w, "OK")
+	}))
+	defer server.Close()
+
+	callback := slack.InteractionCallback{Type: "block_actions", User: slack.User{ID: "marco"}, ResponseURL: server.URL, ActionCallback: slack.ActionCallbacks{BlockActions: []*slack.BlockAction{&slack.BlockAction{ActionID: "1566576557-poll1,delete", Value: "delete"}}}}
 	callback.Channel.ID = "myLittleChannel"
 
 	payload, _ := json.Marshal(callback)
@@ -926,8 +1065,8 @@ func TestDeletePollFailedToDeleteStoredData(t *testing.T) {
 	defer userFinder.AssertExpectations(t)
 
 	storer := &mocks.Storer{}
-	storer.On("GetSiloString", "1566576557-poll1", "pollInfo").Return("{\"id\":\"1566576557-poll1\",\"msgID\":{\"channelID\":\"myLittleChannel\",\"timestamp\":\"1566576557.354007\"},\"question\":\"To do or not to do?\",\"options\":[\"Do\",\"Not Do\"],\"creator\":\"marco\"}", nil)
-	storer.On("ScanSilo", "1566576557-poll1").Return(map[string]string{"pollInfo": "{\"id\":\"1566576557-poll1\",\"msgID\":{\"channelID\":\"myLittleChannel\",\"timestamp\":\"1566576557.354007\"},\"question\":\"To do or not to do?\",\"options\":[\"Do\",\"Not Do\"],\"creator\":\"UID\"}"}, nil)
+	storer.On("GetSiloString", "1566576557-poll1", "pollInfo").Return("{\"id\":\"1566576557-poll1\",\"msgID\":{\"channelID\":\"myLittleChannel\",\"timestamp\":\"1566576557.354007\"},\"question\":\"To do or not to do?\",\"options\":[\"Do\",\"Not Do\"],\"features\":{\"multianswers\":false},\"creator\":\"marco\"}", nil)
+	storer.On("ScanSilo", "1566576557-poll1").Return(map[string]string{"pollInfo": "{\"id\":\"1566576557-poll1\",\"msgID\":{\"channelID\":\"myLittleChannel\",\"timestamp\":\"1566576557.354007\"},\"question\":\"To do or not to do?\",\"options\":[\"Do\",\"Not Do\"],\"features\":{\"multianswers\":false},\"creator\":\"UID\"}"}, nil)
 	storer.On("DeleteSiloString", "1566576557-poll1", "pollInfo").Return(fmt.Errorf("failed to delete data from db"))
 	defer storer.AssertExpectations(t)
 
@@ -935,18 +1074,20 @@ func TestDeletePollFailedToDeleteStoredData(t *testing.T) {
 	verifier.On("Verify", r.Header, []byte(body)).Return(nil)
 	defer verifier.AssertExpectations(t)
 
-	mp, err := marcopoller.NewWithOptions(marcopoller.OptionVerifier(verifier), marcopoller.OptionUserFinder(userFinder), marcopoller.OptionStorer(storer), marcopoller.OptionPollVerifier(marcopoller.AlwaysValidPollVerifier{}))
+	dialoguer := &mmocks.Dialoguer{}
+	defer dialoguer.AssertExpectations(t)
+
+	mp, err := marcopoller.NewWithOptions(marcopoller.OptionVerifier(verifier), marcopoller.OptionUserFinder(userFinder), marcopoller.OptionStorer(storer), marcopoller.OptionDialoguer(dialoguer), marcopoller.OptionPollVerifier(marcopoller.AlwaysValidPollVerifier{}))
 	require.NoError(t, err)
 
 	w := httptest.NewRecorder()
 
-	mp.RegisterVote(w, r)
+	mp.HandleInteractions(w, r)
 
 	resp := w.Result()
-	rbody, _ := ioutil.ReadAll(resp.Body)
 
-	assert.Equal(t, "failed to delete data from db\n", string(rbody))
-	assert.Equal(t, 500, resp.StatusCode)
+	assert.Equal(t, 200, resp.StatusCode)
+	assert.Equal(t, "{\"response_type\":\"ephemeral\",\"text\":\":warning: Error deleting poll. Please try again\",\"replace_original\":false}", slackRequest)
 }
 
 func TestUnauthorizedDeletePoll(t *testing.T) {
@@ -958,7 +1099,7 @@ func TestUnauthorizedDeletePoll(t *testing.T) {
 	}))
 	defer server.Close()
 
-	callback := marcopoller.Callback{User: slack.User{ID: "thatguy"}, ResponseURL: server.URL, Actions: []marcopoller.Action{marcopoller.Action{ActionID: "1566576557-poll1", Value: "delete"}}}
+	callback := slack.InteractionCallback{Type: "block_actions", User: slack.User{ID: "thatguy"}, ResponseURL: server.URL, ActionCallback: slack.ActionCallbacks{BlockActions: []*slack.BlockAction{&slack.BlockAction{ActionID: "1566576557-poll1,delete", Value: "delete"}}}}
 	callback.Channel.ID = "myLittleChannel"
 
 	payload, _ := json.Marshal(callback)
@@ -972,19 +1113,22 @@ func TestUnauthorizedDeletePoll(t *testing.T) {
 	defer userFinder.AssertExpectations(t)
 
 	storer := &mocks.Storer{}
-	storer.On("GetSiloString", "1566576557-poll1", "pollInfo").Return("{\"id\":\"1566576557-poll1\",\"msgID\":{\"channelID\":\"myLittleChannel\",\"timestamp\":\"1566576557.354007\"},\"question\":\"To do or not to do?\",\"options\":[\"Do\",\"Not Do\"],\"creator\":\"marco\"}", nil)
+	storer.On("GetSiloString", "1566576557-poll1", "pollInfo").Return("{\"id\":\"1566576557-poll1\",\"msgID\":{\"channelID\":\"myLittleChannel\",\"timestamp\":\"1566576557.354007\"},\"question\":\"To do or not to do?\",\"options\":[\"Do\",\"Not Do\"],\"features\":{\"multianswers\":false},\"creator\":\"marco\"}", nil)
 	defer storer.AssertExpectations(t)
 
 	verifier := &Verifier{}
 	verifier.On("Verify", r.Header, []byte(body)).Return(nil)
 	defer verifier.AssertExpectations(t)
 
-	mp, err := marcopoller.NewWithOptions(marcopoller.OptionVerifier(verifier), marcopoller.OptionUserFinder(userFinder), marcopoller.OptionStorer(storer), marcopoller.OptionPollVerifier(marcopoller.AlwaysValidPollVerifier{}))
+	dialoguer := &mmocks.Dialoguer{}
+	defer dialoguer.AssertExpectations(t)
+
+	mp, err := marcopoller.NewWithOptions(marcopoller.OptionVerifier(verifier), marcopoller.OptionUserFinder(userFinder), marcopoller.OptionStorer(storer), marcopoller.OptionDialoguer(dialoguer), marcopoller.OptionPollVerifier(marcopoller.AlwaysValidPollVerifier{}))
 	require.NoError(t, err)
 
 	w := httptest.NewRecorder()
 
-	mp.RegisterVote(w, r)
+	mp.HandleInteractions(w, r)
 
 	resp := w.Result()
 	rbody, _ := ioutil.ReadAll(resp.Body)
@@ -1002,7 +1146,7 @@ func TestUnauthorizedDeletePollFailureToSendSlackMsg(t *testing.T) {
 	}))
 	defer server.Close()
 
-	callback := marcopoller.Callback{User: slack.User{ID: "thatguy"}, ResponseURL: server.URL, Actions: []marcopoller.Action{marcopoller.Action{ActionID: "1566576557-poll1", Value: "delete"}}}
+	callback := slack.InteractionCallback{Type: "block_actions", User: slack.User{ID: "thatguy"}, ResponseURL: server.URL, ActionCallback: slack.ActionCallbacks{BlockActions: []*slack.BlockAction{&slack.BlockAction{ActionID: "1566576557-poll1,delete", Value: "delete"}}}}
 	callback.Channel.ID = "myLittleChannel"
 
 	payload, _ := json.Marshal(callback)
@@ -1016,25 +1160,26 @@ func TestUnauthorizedDeletePollFailureToSendSlackMsg(t *testing.T) {
 	defer userFinder.AssertExpectations(t)
 
 	storer := &mocks.Storer{}
-	storer.On("GetSiloString", "1566576557-poll1", "pollInfo").Return("{\"id\":\"1566576557-poll1\",\"msgID\":{\"channelID\":\"myLittleChannel\",\"timestamp\":\"1566576557.354007\"},\"question\":\"To do or not to do?\",\"options\":[\"Do\",\"Not Do\"],\"creator\":\"marco\"}", nil)
+	storer.On("GetSiloString", "1566576557-poll1", "pollInfo").Return("{\"id\":\"1566576557-poll1\",\"msgID\":{\"channelID\":\"myLittleChannel\",\"timestamp\":\"1566576557.354007\"},\"question\":\"To do or not to do?\",\"options\":[\"Do\",\"Not Do\"],\"features\":{\"multianswers\":false},\"creator\":\"marco\"}", nil)
 	defer storer.AssertExpectations(t)
 
 	verifier := &Verifier{}
 	verifier.On("Verify", r.Header, []byte(body)).Return(nil)
 	defer verifier.AssertExpectations(t)
 
-	mp, err := marcopoller.NewWithOptions(marcopoller.OptionVerifier(verifier), marcopoller.OptionUserFinder(userFinder), marcopoller.OptionStorer(storer), marcopoller.OptionPollVerifier(marcopoller.AlwaysValidPollVerifier{}))
+	dialoguer := &mmocks.Dialoguer{}
+	defer dialoguer.AssertExpectations(t)
+
+	mp, err := marcopoller.NewWithOptions(marcopoller.OptionVerifier(verifier), marcopoller.OptionUserFinder(userFinder), marcopoller.OptionStorer(storer), marcopoller.OptionDialoguer(dialoguer), marcopoller.OptionPollVerifier(marcopoller.AlwaysValidPollVerifier{}))
 	require.NoError(t, err)
 
 	w := httptest.NewRecorder()
 
-	mp.RegisterVote(w, r)
+	mp.HandleInteractions(w, r)
 
 	resp := w.Result()
-	rbody, _ := ioutil.ReadAll(resp.Body)
 
-	assert.Equal(t, "failed to send\n", string(rbody))
-	assert.Equal(t, 500, resp.StatusCode)
+	assert.Equal(t, 200, resp.StatusCode)
 }
 
 func TestNoVerifierOnCreation(t *testing.T) {
@@ -1044,7 +1189,10 @@ func TestNoVerifierOnCreation(t *testing.T) {
 	storer := &mocks.Storer{}
 	defer storer.AssertExpectations(t)
 
-	mp, err := marcopoller.NewWithOptions(marcopoller.OptionUserFinder(userFinder), marcopoller.OptionStorer(storer), marcopoller.OptionPollVerifier(marcopoller.AlwaysValidPollVerifier{}))
+	dialoguer := &mmocks.Dialoguer{}
+	defer dialoguer.AssertExpectations(t)
+
+	mp, err := marcopoller.NewWithOptions(marcopoller.OptionUserFinder(userFinder), marcopoller.OptionStorer(storer), marcopoller.OptionDialoguer(dialoguer), marcopoller.OptionPollVerifier(marcopoller.AlwaysValidPollVerifier{}))
 	require.Error(t, err)
 
 	assert.Nil(t, mp)
@@ -1058,7 +1206,10 @@ func TestNoUserFinderOnCreation(t *testing.T) {
 	storer := &mocks.Storer{}
 	defer storer.AssertExpectations(t)
 
-	mp, err := marcopoller.NewWithOptions(marcopoller.OptionVerifier(verifier), marcopoller.OptionStorer(storer), marcopoller.OptionPollVerifier(marcopoller.AlwaysValidPollVerifier{}))
+	dialoguer := &mmocks.Dialoguer{}
+	defer dialoguer.AssertExpectations(t)
+
+	mp, err := marcopoller.NewWithOptions(marcopoller.OptionVerifier(verifier), marcopoller.OptionStorer(storer), marcopoller.OptionDialoguer(dialoguer), marcopoller.OptionPollVerifier(marcopoller.AlwaysValidPollVerifier{}))
 	require.Error(t, err)
 
 	assert.Nil(t, mp)
@@ -1072,7 +1223,10 @@ func TestNoStorerOnCreation(t *testing.T) {
 	userFinder := &UserFinder{}
 	defer userFinder.AssertExpectations(t)
 
-	mp, err := marcopoller.NewWithOptions(marcopoller.OptionVerifier(verifier), marcopoller.OptionUserFinder(userFinder), marcopoller.OptionPollVerifier(marcopoller.AlwaysValidPollVerifier{}))
+	dialoguer := &mmocks.Dialoguer{}
+	defer dialoguer.AssertExpectations(t)
+
+	mp, err := marcopoller.NewWithOptions(marcopoller.OptionVerifier(verifier), marcopoller.OptionUserFinder(userFinder), marcopoller.OptionPollVerifier(marcopoller.AlwaysValidPollVerifier{}), marcopoller.OptionDialoguer(dialoguer))
 	require.Error(t, err)
 
 	assert.Nil(t, mp)
@@ -1089,11 +1243,31 @@ func TestNoPollVerifierOnCreation(t *testing.T) {
 	userFinder := &UserFinder{}
 	defer userFinder.AssertExpectations(t)
 
-	mp, err := marcopoller.NewWithOptions(marcopoller.OptionVerifier(verifier), marcopoller.OptionStorer(storer), marcopoller.OptionUserFinder(userFinder))
+	dialoguer := &mmocks.Dialoguer{}
+	defer dialoguer.AssertExpectations(t)
+
+	mp, err := marcopoller.NewWithOptions(marcopoller.OptionVerifier(verifier), marcopoller.OptionStorer(storer), marcopoller.OptionUserFinder(userFinder), marcopoller.OptionDialoguer(dialoguer))
 	require.Error(t, err)
 
 	assert.Nil(t, mp)
 	assert.EqualError(t, err, "PollVerifier is nil after applying all Options. Did you forget to set one?")
+}
+
+func TestNoDialoguerOnCreation(t *testing.T) {
+	verifier := &Verifier{}
+	defer verifier.AssertExpectations(t)
+
+	storer := &mocks.Storer{}
+	defer storer.AssertExpectations(t)
+
+	userFinder := &UserFinder{}
+	defer userFinder.AssertExpectations(t)
+
+	mp, err := marcopoller.NewWithOptions(marcopoller.OptionVerifier(verifier), marcopoller.OptionStorer(storer), marcopoller.OptionUserFinder(userFinder), marcopoller.OptionPollVerifier(marcopoller.AlwaysValidPollVerifier{}))
+	require.Error(t, err)
+
+	assert.Nil(t, mp)
+	assert.EqualError(t, err, "Dialoguer is nil after applying all Options. Did you forget to set one?")
 }
 
 // A New Slack Client with a bad token doesn't immediately fail on instantiation because it doesn't connect until
@@ -1105,7 +1279,10 @@ func TestNewWithSlackClientWithBadToken(t *testing.T) {
 	storer := &mocks.Storer{}
 	defer storer.AssertExpectations(t)
 
-	mp, err := marcopoller.NewWithOptions(marcopoller.OptionVerifier(verifier), marcopoller.OptionSlackClient("badToken", false), marcopoller.OptionStorer(storer), marcopoller.OptionPollVerifier(marcopoller.AlwaysValidPollVerifier{}))
+	dialoguer := &mmocks.Dialoguer{}
+	defer dialoguer.AssertExpectations(t)
+
+	mp, err := marcopoller.NewWithOptions(marcopoller.OptionVerifier(verifier), marcopoller.OptionSlackUserFinder("badToken", false), marcopoller.OptionStorer(storer), marcopoller.OptionDialoguer(dialoguer), marcopoller.OptionPollVerifier(marcopoller.AlwaysValidPollVerifier{}))
 
 	assert.NotNil(t, mp)
 	assert.NoError(t, err)
@@ -1121,7 +1298,10 @@ func TestNewWithDatastoreWithoutCredentialsAndInvalidProjectID(t *testing.T) {
 	userFinder := &UserFinder{}
 	defer userFinder.AssertExpectations(t)
 
-	mp, err := marcopoller.NewWithOptions(marcopoller.OptionVerifier(verifier), marcopoller.OptionUserFinder(userFinder), marcopoller.OptionDatastore("invalidProjectID"), marcopoller.OptionPollVerifier(marcopoller.AlwaysValidPollVerifier{}))
+	dialoguer := &mmocks.Dialoguer{}
+	defer dialoguer.AssertExpectations(t)
+
+	mp, err := marcopoller.NewWithOptions(marcopoller.OptionVerifier(verifier), marcopoller.OptionUserFinder(userFinder), marcopoller.OptionDatastore("invalidProjectID"), marcopoller.OptionDialoguer(dialoguer), marcopoller.OptionPollVerifier(marcopoller.AlwaysValidPollVerifier{}))
 	require.Error(t, err)
 
 	assert.Nil(t, mp)
@@ -1134,23 +1314,302 @@ func TestDeleteExpiredPolls(t *testing.T) {
 
 	storer := &mocks.Storer{}
 	// Set up 2 expired polls and 1 still valid
-	storer.On("GlobalScan").Return(map[string]map[string]string{"1566576557-expiredPoll1": {"pollInfo": "{\"id\":\"1566576557-expiredPoll1\",\"msgID\":{\"channelID\":\"myLittleChannel\",\"timestamp\":\"1566576557.354007\"},\"question\":\"To do or not to do?\",\"options\":[\"Do\",\"Not Do\"],\"creator\":\"UID\"}"},
-		"1566574991-expiredPoll2": {"pollInfo": "{\"id\":\"1566574991-expiredPoll2\",\"msgID\":{\"channelID\":\"myLittleChannel\",\"timestamp\":\"1566576557.354007\"},\"question\":\"To do or not to do?\",\"options\":[\"Do\",\"Not Do\"],\"creator\":\"UID\"}"},
-		"1566580148-freshPoll":    {"pollInfo": "{\"id\":\"1566580148-freshPoll\",\"msgID\":{\"channelID\":\"myLittleChannel\",\"timestamp\":\"1566576557.354007\"},\"question\":\"To do or not to do?\",\"options\":[\"Do\",\"Not Do\"],\"creator\":\"UID\"}"}}, nil)
-	storer.On("ScanSilo", "1566576557-expiredPoll1").Return(map[string]string{"pollInfo": "{\"id\":\"1566576557-expiredPoll1\",\"msgID\":{\"channelID\":\"myLittleChannel\",\"timestamp\":\"1566576557.354007\"},\"question\":\"To do or not to do?\",\"options\":[\"Do\",\"Not Do\"],\"creator\":\"UID\"}"}, nil)
+	storer.On("GlobalScan").Return(map[string]map[string]string{"1566576557-expiredPoll1": {"pollInfo": "{\"id\":\"1566576557-expiredPoll1\",\"msgID\":{\"channelID\":\"myLittleChannel\",\"timestamp\":\"1566576557.354007\"},\"question\":\"To do or not to do?\",\"options\":[\"Do\",\"Not Do\"],\"features\":{\"multianswers\":false},\"creator\":\"UID\"}"},
+		"1566574991-expiredPoll2": {"pollInfo": "{\"id\":\"1566574991-expiredPoll2\",\"msgID\":{\"channelID\":\"myLittleChannel\",\"timestamp\":\"1566576557.354007\"},\"question\":\"To do or not to do?\",\"options\":[\"Do\",\"Not Do\"],\"features\":{\"multianswers\":false},\"creator\":\"UID\"}"},
+		"1566580148-freshPoll":    {"pollInfo": "{\"id\":\"1566580148-freshPoll\",\"msgID\":{\"channelID\":\"myLittleChannel\",\"timestamp\":\"1566576557.354007\"},\"question\":\"To do or not to do?\",\"options\":[\"Do\",\"Not Do\"],\"features\":{\"multianswers\":false},\"creator\":\"UID\"}"}}, nil)
+	storer.On("ScanSilo", "1566576557-expiredPoll1").Return(map[string]string{"pollInfo": "{\"id\":\"1566576557-expiredPoll1\",\"msgID\":{\"channelID\":\"myLittleChannel\",\"timestamp\":\"1566576557.354007\"},\"question\":\"To do or not to do?\",\"options\":[\"Do\",\"Not Do\"],\"features\":{\"multianswers\":false},\"creator\":\"UID\"}"}, nil)
 	storer.On("DeleteSiloString", "1566576557-expiredPoll1", "pollInfo").Return(nil)
-	storer.On("ScanSilo", "1566574991-expiredPoll2").Return(map[string]string{"pollInfo": "{\"id\":\"1566574991-expiredPoll2\",\"msgID\":{\"channelID\":\"myLittleChannel\",\"timestamp\":\"1566576557.354007\"},\"question\":\"To do or not to do?\",\"options\":[\"Do\",\"Not Do\"],\"creator\":\"UID\"}"}, nil)
+	storer.On("ScanSilo", "1566574991-expiredPoll2").Return(map[string]string{"pollInfo": "{\"id\":\"1566574991-expiredPoll2\",\"msgID\":{\"channelID\":\"myLittleChannel\",\"timestamp\":\"1566576557.354007\"},\"question\":\"To do or not to do?\",\"options\":[\"Do\",\"Not Do\"],\"features\":{\"multianswers\":false},\"creator\":\"UID\"}"}, nil)
 	storer.On("DeleteSiloString", "1566574991-expiredPoll2", "pollInfo").Return(nil)
 	defer storer.AssertExpectations(t)
 
 	verifier := &Verifier{}
 	defer verifier.AssertExpectations(t)
 
-	mp, err := marcopoller.NewWithOptions(marcopoller.OptionVerifier(verifier), marcopoller.OptionUserFinder(userFinder), marcopoller.OptionStorer(storer), marcopoller.OptionPollVerifier(marcopoller.ExpirationPollVerifier{ValidityPeriod: time.Duration(1) * time.Hour}))
+	dialoguer := &mmocks.Dialoguer{}
+	defer dialoguer.AssertExpectations(t)
+
+	mp, err := marcopoller.NewWithOptions(marcopoller.OptionVerifier(verifier), marcopoller.OptionUserFinder(userFinder), marcopoller.OptionStorer(storer), marcopoller.OptionDialoguer(dialoguer), marcopoller.OptionPollVerifier(marcopoller.ExpirationPollVerifier{ValidityPeriod: time.Duration(1) * time.Hour}))
 	require.NoError(t, err)
 
 	deleted, err := mp.DeleteExpiredPolls(time.Unix(1566580158, 0))
 	require.NoError(t, err)
 
 	assert.Equal(t, 2, deleted)
+}
+
+func TestInteractivePrompt(t *testing.T) {
+	body := "token=sometoken&team_id=TEAMID3&team_domain=test-workspace&channel_id=CID&channel_name=testchannel&user_id=UID&user_name=marco&command=%2Fpoll&text=&response_url=https%3A%2F%2Fhooks.slack.com%2Fcommands%2Fbla%2Fbleh%2Fblo&trigger_id=someTriggerID"
+	r := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
+	r.Header.Add("X-Slack-Signature", "8e9fe980e2b36c7a7accab28bd8e315667cf9122c3f01c3b7230bb9587627ccb")
+	r.Header.Add("X-Slack-Request-Timestamp", "1531431954")
+
+	userFinder := &UserFinder{}
+	defer userFinder.AssertExpectations(t)
+
+	storer := &mocks.Storer{}
+	defer storer.AssertExpectations(t)
+
+	verifier := &Verifier{}
+	verifier.On("Verify", r.Header, []byte(body)).Return(nil)
+	defer verifier.AssertExpectations(t)
+
+	dialoguer := &mmocks.Dialoguer{}
+	dialoguer.On("OpenView", "someTriggerID", mock.Anything).Return(nil, nil)
+	defer dialoguer.AssertExpectations(t)
+
+	mp, err := marcopoller.NewWithOptions(marcopoller.OptionVerifier(verifier), marcopoller.OptionUserFinder(userFinder), marcopoller.OptionStorer(storer), marcopoller.OptionDialoguer(dialoguer), marcopoller.OptionPollVerifier(marcopoller.AlwaysValidPollVerifier{}))
+	require.NoError(t, err)
+
+	w := httptest.NewRecorder()
+
+	mp.StartPoll(w, r)
+
+	resp := w.Result()
+
+	assert.Equal(t, 200, resp.StatusCode)
+}
+
+func TestErrorCreatingInteractivePrompt(t *testing.T) {
+	slackRequest := ""
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		reqBody, _ := ioutil.ReadAll(r.Body)
+		slackRequest = string(reqBody)
+		fmt.Fprintln(w, "OK")
+	}))
+	defer server.Close()
+
+	body := "token=sometoken&team_id=TEAMID3&team_domain=test-workspace&channel_id=CID&channel_name=testchannel&user_id=UID&user_name=marco&command=%2Fpoll&text=&response_url=" + server.URL + "&trigger_id=someTriggerID"
+	r := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
+	r.Header.Add("X-Slack-Signature", "8e9fe980e2b36c7a7accab28bd8e315667cf9122c3f01c3b7230bb9587627ccb")
+	r.Header.Add("X-Slack-Request-Timestamp", "1531431954")
+
+	userFinder := &UserFinder{}
+	defer userFinder.AssertExpectations(t)
+
+	storer := &mocks.Storer{}
+	defer storer.AssertExpectations(t)
+
+	verifier := &Verifier{}
+	verifier.On("Verify", r.Header, []byte(body)).Return(nil)
+	defer verifier.AssertExpectations(t)
+
+	dialoguer := &mmocks.Dialoguer{}
+	dialoguer.On("OpenView", "someTriggerID", mock.Anything).Return(nil, fmt.Errorf("error opening view"))
+	defer dialoguer.AssertExpectations(t)
+
+	mp, err := marcopoller.NewWithOptions(marcopoller.OptionVerifier(verifier), marcopoller.OptionUserFinder(userFinder), marcopoller.OptionStorer(storer), marcopoller.OptionDialoguer(dialoguer), marcopoller.OptionPollVerifier(marcopoller.AlwaysValidPollVerifier{}))
+	require.NoError(t, err)
+
+	w := httptest.NewRecorder()
+
+	mp.StartPoll(w, r)
+
+	resp := w.Result()
+
+	assert.Equal(t, 200, resp.StatusCode)
+	assert.Equal(t, "{\"response_type\":\"ephemeral\",\"text\":\":warning: Error opening up interactive prompt. Try again, maybe?\",\"replace_original\":false}", slackRequest)
+}
+
+func TestErrorCreatingNewPoll(t *testing.T) {
+	lastRequest := ""
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		reqBody, _ := ioutil.ReadAll(r.Body)
+		lastRequest = string(reqBody)
+		// Reject the ephemeral user message requests but let the others succeed
+		if !strings.Contains(lastRequest, "ephemeral") {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			w.Write([]byte("can't update message"))
+		} else {
+			fmt.Fprintln(w, "OK")
+		}
+	}))
+	defer server.Close()
+
+	body := fmt.Sprintf("token=sometoken&team_id=TEAMID3&team_domain=test-workspace&channel_id=CID&channel_name=testchannel&user_id=UID&user_name=marco&command=%%2Fpoll&text=%%22To%%20do%%20or%%20not%%20to%%20do%%3F%%22%%20%%22Do%%22%%20%%22Not%%20Do%%22&response_url=%s&trigger_id=someTriggerID", server.URL)
+	r := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
+	r.Header.Add("X-Slack-Signature", "8e9fe980e2b36c7a7accab28bd8e315667cf9122c3f01c3b7230bb9587627ccb")
+	r.Header.Add("X-Slack-Request-Timestamp", "1531431954")
+
+	userFinder := &UserFinder{}
+	defer userFinder.AssertExpectations(t)
+
+	storer := &mocks.Storer{}
+	storer.On("PutSiloString", mock.Anything, "pollInfo", mock.MatchedBy(func(val string) bool {
+		match, _ := regexp.MatchString("{\"id\":\".*\",\"question\":\"To do or not to do\\?\",\"options\":\\[\"Do\",\"Not Do\"\\],\"features\":{\"multianswers\":false},\"creator\":\"UID\"}", val)
+		return match
+	})).Return(nil)
+	defer storer.AssertExpectations(t)
+
+	verifier := &Verifier{}
+	verifier.On("Verify", r.Header, []byte(body)).Return(nil)
+	defer verifier.AssertExpectations(t)
+
+	dialoguer := &mmocks.Dialoguer{}
+	defer dialoguer.AssertExpectations(t)
+
+	mp, err := marcopoller.NewWithOptions(marcopoller.OptionVerifier(verifier), marcopoller.OptionUserFinder(userFinder), marcopoller.OptionStorer(storer), marcopoller.OptionDialoguer(dialoguer), marcopoller.OptionPollVerifier(marcopoller.AlwaysValidPollVerifier{}))
+	require.NoError(t, err)
+
+	w := httptest.NewRecorder()
+
+	mp.StartPoll(w, r)
+
+	resp := w.Result()
+
+	assert.Equal(t, 200, resp.StatusCode)
+	assert.Equal(t, "{\"response_type\":\"ephemeral\",\"text\":\":warning: Error writing new poll to slack. Please try again.\",\"replace_original\":false}", lastRequest)
+}
+
+func TestInteractivePollSubmission(t *testing.T) {
+	slackRequest := ""
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		reqBody, _ := ioutil.ReadAll(r.Body)
+		slackRequest = string(reqBody)
+		fmt.Fprintln(w, "OK")
+	}))
+	defer server.Close()
+
+	callback := marcopoller.InteractionCallback{Type: "view_submission",
+		User:         slack.User{ID: "marco"},
+		ResponseURLs: []marcopoller.ResponseURL{marcopoller.ResponseURL{ResponseURL: server.URL}},
+		View: slack.View{CallbackID: "interactive-poll-create",
+			State: &slack.ViewState{Values: map[string]map[string]slack.BlockAction{
+				"poll_question":       map[string]slack.BlockAction{"poll_question": slack.BlockAction{Value: "To do or not to do?"}},
+				"poll_answer_options": map[string]slack.BlockAction{"poll_answer_options": slack.BlockAction{Value: "Do\nNot Do\n"}},
+			}}}}
+	callback.Channel.ID = "myLittleChannel"
+
+	payload, _ := json.Marshal(callback)
+	body := fmt.Sprintf("payload=%s", payload)
+
+	r := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
+	r.Header.Add("X-Slack-Signature", "8e9fe980e2b36c7a7accab28bd8e315667cf9122c3f01c3b7230bb9587627ccb")
+	r.Header.Add("X-Slack-Request-Timestamp", "1531431954")
+
+	userFinder := &UserFinder{}
+	defer userFinder.AssertExpectations(t)
+
+	storer := &mocks.Storer{}
+	storer.On("PutSiloString", mock.Anything, "pollInfo", mock.MatchedBy(func(val string) bool {
+		match, _ := regexp.MatchString("{\"id\":\".*\",\"question\":\"To do or not to do\\?\",\"options\":\\[\"Do\",\"Not Do\"\\],\"features\":{\"multianswers\":false},\"creator\":\"marco\"}", val)
+		return match
+	})).Return(nil)
+	defer storer.AssertExpectations(t)
+
+	verifier := &Verifier{}
+	verifier.On("Verify", r.Header, []byte(body)).Return(nil)
+	defer verifier.AssertExpectations(t)
+
+	dialoguer := &mmocks.Dialoguer{}
+	defer dialoguer.AssertExpectations(t)
+
+	mp, err := marcopoller.NewWithOptions(marcopoller.OptionVerifier(verifier), marcopoller.OptionUserFinder(userFinder), marcopoller.OptionStorer(storer), marcopoller.OptionDialoguer(dialoguer), marcopoller.OptionPollVerifier(marcopoller.AlwaysValidPollVerifier{}))
+	require.NoError(t, err)
+
+	w := httptest.NewRecorder()
+
+	mp.HandleInteractions(w, r)
+
+	resp := w.Result()
+
+	assert.Equal(t, 200, resp.StatusCode)
+	assert.Regexp(t, regexp.MustCompile("\\{\"response_type\":\"in_channel\",\"blocks\":.*,\"replace_original\":false}"), slackRequest)
+}
+
+func TestInvalidCallbackType(t *testing.T) {
+	slackRequest := ""
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		reqBody, _ := ioutil.ReadAll(r.Body)
+		slackRequest = string(reqBody)
+		fmt.Fprintln(w, "OK")
+	}))
+	defer server.Close()
+
+	callback := marcopoller.InteractionCallback{Type: "invalidType", ResponseURL: server.URL}
+
+	payload, _ := json.Marshal(callback)
+	body := fmt.Sprintf("payload=%s", payload)
+
+	r := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
+	r.Header.Add("X-Slack-Signature", "8e9fe980e2b36c7a7accab28bd8e315667cf9122c3f01c3b7230bb9587627ccb")
+	r.Header.Add("X-Slack-Request-Timestamp", "1531431954")
+
+	userFinder := &UserFinder{}
+	defer userFinder.AssertExpectations(t)
+
+	storer := &mocks.Storer{}
+	defer storer.AssertExpectations(t)
+
+	verifier := &Verifier{}
+	verifier.On("Verify", r.Header, []byte(body)).Return(nil)
+	defer verifier.AssertExpectations(t)
+
+	dialoguer := &mmocks.Dialoguer{}
+	defer dialoguer.AssertExpectations(t)
+
+	mp, err := marcopoller.NewWithOptions(marcopoller.OptionVerifier(verifier), marcopoller.OptionUserFinder(userFinder), marcopoller.OptionStorer(storer), marcopoller.OptionDialoguer(dialoguer), marcopoller.OptionPollVerifier(marcopoller.AlwaysValidPollVerifier{}))
+	require.NoError(t, err)
+
+	w := httptest.NewRecorder()
+
+	mp.HandleInteractions(w, r)
+
+	resp := w.Result()
+
+	assert.Equal(t, 200, resp.StatusCode)
+	assert.Equal(t, "{\"response_type\":\"ephemeral\",\"text\":\":warning: Unknown interaction callback type: invalidType\",\"replace_original\":false}", slackRequest)
+}
+
+func TestCloseVoting(t *testing.T) {
+	slackRequest := ""
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		reqBody, _ := ioutil.ReadAll(r.Body)
+		slackRequest = string(reqBody)
+		fmt.Fprintln(w, "OK")
+	}))
+	defer server.Close()
+
+	callback := slack.InteractionCallback{Type: "block_actions", User: slack.User{ID: "marco"}, ResponseURL: server.URL, ActionCallback: slack.ActionCallbacks{BlockActions: []*slack.BlockAction{&slack.BlockAction{ActionID: "1566576557-poll1,close", Value: "close"}}}}
+	callback.Channel.ID = "myLittleChannel"
+
+	payload, _ := json.Marshal(callback)
+	body := fmt.Sprintf("payload=%s", payload)
+
+	r := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
+	r.Header.Add("X-Slack-Signature", "8e9fe980e2b36c7a7accab28bd8e315667cf9122c3f01c3b7230bb9587627ccb")
+	r.Header.Add("X-Slack-Request-Timestamp", "1531431954")
+
+	userFinder := &UserFinder{}
+	userFinder.On("GetUserInfo", "marco").Return(&slack.User{ID: "marco", Profile: slack.UserProfile{Image24: "http://image.me", RealName: "Marco Poller"}}, nil)
+	defer userFinder.AssertExpectations(t)
+
+	storer := &mocks.Storer{}
+	storer.On("GetSiloString", "1566576557-poll1", "pollInfo").Return("{\"id\":\"1566576557-poll1\",\"msgID\":{\"channelID\":\"myLittleChannel\",\"timestamp\":\"1566576557.354007\"},\"question\":\"To do or not to do?\",\"options\":[\"Do\",\"Not Do\"],\"features\":{\"multianswers\":false},\"creator\":\"marco\"}", nil)
+	storer.On("ScanSilo", "1566576557-poll1").Return(map[string]string{"pollInfo": "{\"id\":\"1566576557-poll1\",\"msgID\":{\"channelID\":\"myLittleChannel\",\"timestamp\":\"1566576557.354007\"},\"question\":\"To do or not to do?\",\"options\":[\"Do\",\"Not Do\"],\"features\":{\"multianswers\":false},\"creator\":\"UID\"}", "marco": "0"}, nil)
+	storer.On("DeleteSiloString", "1566576557-poll1", "pollInfo").Return(nil)
+	storer.On("DeleteSiloString", "1566576557-poll1", "marco").Return(nil)
+	defer storer.AssertExpectations(t)
+
+	verifier := &Verifier{}
+	verifier.On("Verify", r.Header, []byte(body)).Return(nil)
+	defer verifier.AssertExpectations(t)
+
+	dialoguer := &mmocks.Dialoguer{}
+	defer dialoguer.AssertExpectations(t)
+
+	mp, err := marcopoller.NewWithOptions(marcopoller.OptionVerifier(verifier), marcopoller.OptionUserFinder(userFinder), marcopoller.OptionStorer(storer), marcopoller.OptionDialoguer(dialoguer), marcopoller.OptionPollVerifier(marcopoller.AlwaysValidPollVerifier{}))
+	require.NoError(t, err)
+
+	w := httptest.NewRecorder()
+
+	mp.HandleInteractions(w, r)
+
+	resp := w.Result()
+	rbody, _ := ioutil.ReadAll(resp.Body)
+
+	assert.Equal(t, "", string(rbody))
+	assert.Equal(t, 200, resp.StatusCode)
+
+	assert.Equal(t, "{\"blocks\":[{\"type\":\"section\",\"text\":{\"type\":\"mrkdwn\",\"text\":\"*To do or not to do?*\"}},{\"type\":\"divider\"},{\"type\":\"section\",\"text\":{\"type\":\"mrkdwn\",\"text\":\" • Do\"}},{\"type\":\"context\",\"elements\":[{\"type\":\"image\",\"image_url\":\"http://image.me\",\"alt_text\":\"\"}]},{\"type\":\"section\",\"text\":{\"type\":\"mrkdwn\",\"text\":\" • Not Do\"}},{\"type\":\"context\",\"elements\":[{\"type\":\"mrkdwn\",\"text\":\"Created by \\u003c@marco\\u003e (voting closed)\"}]}],\"replace_original\":true}", slackRequest)
 }

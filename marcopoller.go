@@ -4,16 +4,17 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"io/ioutil"
 	"log"
 	"net/http"
 	"net/url"
 	"os"
+	"sort"
 	"strings"
 	"time"
 	"unicode"
 
+	"cloud.google.com/go/datastore"
 	"github.com/alexandre-normand/slackscot/store"
 	"github.com/alexandre-normand/slackscot/store/datastoredb"
 	"github.com/imroc/req"
@@ -40,9 +41,38 @@ const (
 
 // App constants
 const (
-	appName             = "marco-poller"
-	persistenceKindName = "marcoPoller"
-	deleteValue         = "delete"
+	appName               = "marco-poller"
+	friendlyName          = "Marco Poller"
+	persistenceKindName   = "marcoPoller"
+	voteDelimiter         = ","
+	buttonIDPartDelimiter = ","
+)
+
+// Fixed button identifiers
+const (
+	voteButtonValue   = "vote"
+	deleteButtonValue = "delete"
+	closeButtonValue  = "close"
+)
+
+// Interactive Prompt Identifiers
+const (
+	interactivePollCallbackID = "interactive-poll-create"
+
+	pollConversationInputBlockID   = "poll_conversation_select"
+	pollConversationSelectActionID = "poll_conversation_select"
+
+	pollQuestionInputBlockID = "poll_question"
+	pollQuestionActionID     = "poll_question"
+
+	pollFeaturesInputBlockID = "poll_features"
+	pollFeaturesActionID     = "poll_features"
+	multiAnswerOptionID      = "multivoting"
+
+	pollOptionsInputBlockID = "poll_answer_options"
+	pollOptionsActionID     = "poll_answer_options"
+
+	multiAnswerFeatureValue = "Allow voters to vote for many options"
 )
 
 // Slack slash command parameter names
@@ -51,50 +81,21 @@ const (
 	channelParam     = "channel_id"
 	creatorParam     = "user_id"
 	responseURLParam = "response_url"
+	triggerIDParam   = "trigger_id"
 )
-
-// Callback represents a slack interaction callback payload
-type Callback struct {
-	Type        slack.InteractionType `json:"type"`
-	Team        slack.Team            `json:"team"`
-	User        slack.User            `json:"user"`
-	Container   Container             `json:"container,omitempty"`
-	ApiAppID    string                `json:"api_app_id"`
-	Token       string                `json:"token"`
-	TriggerID   string                `json:"trigger_id"`
-	ResponseURL string                `json:"response_url"`
-	ActionTs    string                `json:"action_ts"`
-	Message     slack.Msg             `json:"message,omitempty"`
-	Channel     slack.Channel         `json:"channel"`
-	Name        string                `json:"name"`
-	Value       string                `json:"value"`
-	Actions     []Action              `json:"actions"`
-}
-
-// Action represents a triggered action value in a slack callback
-type Action struct {
-	Type     string                `json:"type"`
-	BlockID  string                `json:"block_id"`
-	ActionID string                `json:"action_id"`
-	Text     slack.TextBlockObject `json:"text"`
-	Value    string                `json:"value"`
-	ActionTs string                `json:"action_ts"`
-}
-
-// Container represents a container element part of a Callback
-type Container struct {
-	Type         string `json:"type,omitempty"`
-	MsgTimestamp string `json:"message_ts,omitempty"`
-	ChannelID    string `json:"channel_id,omitempty"`
-	IsEphemeral  bool   `json:is_ephemeral,omitempty`
-}
 
 // Poll represents a poll
 type Poll struct {
-	ID       string   `json:"id"`
-	Question string   `json:"question"`
-	Options  []string `json:"options"`
-	Creator  string   `json:"creator"`
+	ID       string       `json:"id"`
+	Question string       `json:"question"`
+	Options  []string     `json:"options"`
+	Features PollFeatures `json:"features,omitempty"`
+	Creator  string       `json:"creator"`
+}
+
+// PollFeatures represents features on a poll
+type PollFeatures struct {
+	MultiAnswers bool `json:"multianswers"`
 }
 
 // ActionResponse represents a response to a slash command or action
@@ -128,6 +129,7 @@ type MarcoPoller struct {
 	userFinder   UserFinder
 	verifier     Verifier
 	pollVerifier PollVerifier
+	dialoguer    Dialoguer
 	debug        bool
 	meter        metric.Meter
 	instruments  *instruments
@@ -152,6 +154,12 @@ type UserFinder interface {
 // Verifier is implemented by any value that has the Verify method
 type Verifier interface {
 	Verify(header http.Header, body []byte) (err error)
+}
+
+// Dialoguer is implemented by any value that has the OpenView method
+type Dialoguer interface {
+	// OpenView will open a block kit modal view. See https://pkg.go.dev/github.com/slack-go/slack?tab=doc#Client.OpenView
+	OpenView(triggerID string, view slack.ModalViewRequest) (resp *slack.ViewResponse, err error)
 }
 
 // SlackVerifier represents a slack verifier backed by github.com/slack-go/slack
@@ -216,15 +224,6 @@ func (avpv AlwaysValidPollVerifier) Verify(pollID string, actionTime time.Time) 
 // Option is a function that applies an option to a MarcoPoller instance
 type Option func(mp *MarcoPoller) (err error)
 
-// OptionSlackClient sets a slack-go/slack.Client as the implementation of UserFinder
-func OptionSlackClient(slackToken string, debug bool) Option {
-	return func(mp *MarcoPoller) (err error) {
-		sc := slack.New(slackToken, slack.OptionDebug(debug))
-		mp.userFinder = sc
-		return nil
-	}
-}
-
 // OptionSlackUserFinder sets a slack-go/slack.Client as the implementation of UserFinder
 func OptionSlackUserFinder(token string, debug bool) Option {
 	return func(mp *MarcoPoller) (err error) {
@@ -234,7 +233,16 @@ func OptionSlackUserFinder(token string, debug bool) Option {
 	}
 }
 
-// OptionSlackVerifier sets a slack-go/slack.Client as the implementation of Verifier
+// OptionSlackDialoguer sets a slack-go/slack.Client as the implementation of Dialoguer
+func OptionSlackDialoguer(token string, debug bool) Option {
+	return func(mp *MarcoPoller) (err error) {
+		sc := slack.New(token, slack.OptionDebug(debug))
+		mp.dialoguer = sc
+		return nil
+	}
+}
+
+// OptionSlackVerifier sets a slack-go-backed SlackVerifier as the implementation of Verifier
 func OptionSlackVerifier(slackSigningSecret string) Option {
 	return func(mp *MarcoPoller) (err error) {
 		mp.verifier = &SlackVerifier{slackSigningSecret: slackSigningSecret}
@@ -265,6 +273,14 @@ func OptionUserFinder(userFinder UserFinder) Option {
 	}
 }
 
+// OptionDialoguer sets a dialoguer as the implementation on MarcoPoller
+func OptionDialoguer(dialoguer Dialoguer) Option {
+	return func(mp *MarcoPoller) (err error) {
+		mp.dialoguer = dialoguer
+		return nil
+	}
+}
+
 // OptionStorer sets a storer as the implementation on MarcoPoller
 func OptionStorer(storer store.GlobalSiloStringStorer) Option {
 	return func(mp *MarcoPoller) (err error) {
@@ -281,7 +297,7 @@ func OptionVerifier(verifier Verifier) Option {
 	}
 }
 
-// OptionVerifier provides a pollVerifier implementation to MarcoPoller
+// OptionPollVerifier provides a pollVerifier implementation to MarcoPoller
 func OptionPollVerifier(pollVerifier PollVerifier) Option {
 	return func(mp *MarcoPoller) (err error) {
 		mp.pollVerifier = pollVerifier
@@ -299,7 +315,7 @@ func OptionDebug(debug bool) Option {
 
 // New returns a new MarcoPoller with the default slack client and datastoredb implementations
 func New(slackToken string, slackSigningSecret string, datastoreProjectID string, gcloudClientOpts ...option.ClientOption) (mp *MarcoPoller, err error) {
-	return NewWithOptions(OptionSlackVerifier(slackSigningSecret), OptionSlackClient(slackToken, cast.ToBool(os.Getenv(DebugEnabledEnv))), OptionDatastore(datastoreProjectID, gcloudClientOpts...), OptionPollVerifier(AlwaysValidPollVerifier{}))
+	return NewWithOptions(OptionSlackVerifier(slackSigningSecret), OptionSlackUserFinder(slackToken, cast.ToBool(os.Getenv(DebugEnabledEnv))), OptionSlackDialoguer(slackToken, cast.ToBool(os.Getenv(DebugEnabledEnv))), OptionDatastore(datastoreProjectID, gcloudClientOpts...), OptionPollVerifier(AlwaysValidPollVerifier{}))
 }
 
 // NewWithOptions returns a new MarcoPoller with specified options
@@ -327,6 +343,10 @@ func NewWithOptions(opts ...Option) (mp *MarcoPoller, err error) {
 
 	if mp.pollVerifier == nil {
 		return nil, fmt.Errorf("PollVerifier is nil after applying all Options. Did you forget to set one?")
+	}
+
+	if mp.dialoguer == nil {
+		return nil, fmt.Errorf("Dialoguer is nil after applying all Options. Did you forget to set one?")
 	}
 
 	mp.meter = opentelemetry.MeterProvider().Meter("github.com/alexandre-normand/marcopoller")
@@ -381,25 +401,30 @@ func (mp *MarcoPoller) StartPoll(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	pollText, creator, responseURL, err := parseNewPollRequest(string(body))
+	pollText, creator, responseURL, triggerID, err := parseNewPollRequest(string(body))
 	if err != nil {
 		log.Printf("Error parsing poll request: %v", err)
 		http.Error(w, err.Error(), 400)
 		return
 	}
 
-	question, options, err := parsePollParams(pollText)
+	// Now that the request is parsed, it's considered accepted and we return a 200 OK to slack
+	// to avoid timeouts
+	w.WriteHeader(http.StatusOK)
+
+	interactive, question, options, err := parsePollParams(pollText)
 	if err != nil {
-		actionResponse := ActionResponse{ResponseType: "ephemeral", Text: ":warning: Wrong usage. `/poll \"Question\" \"Option 1\" \"Option 2\" ...`"}
-		resp, err := req.Post(responseURL, req.BodyJSON(&actionResponse))
-		if err != nil || resp.Response().StatusCode != 200 {
-			if err != nil {
-				log.Printf("Error writing wrong usage message: %s", err.Error())
-				http.Error(w, err.Error(), 500)
-			} else {
-				log.Printf("Error writing wrong usage message: %s", resp.String())
-				http.Error(w, resp.String(), 500)
-			}
+		showErrorToUser(responseURL, ":warning: Wrong usage. `/poll \"Question\" \"Option 1\" \"Option 2\" ...`")
+
+		return
+	}
+
+	if interactive {
+		interactivePrompt := createInteractivePollPrompt()
+		_, err := mp.dialoguer.OpenView(triggerID, interactivePrompt)
+		if err != nil {
+			log.Printf("Error opening up interactive prompt for trigger id [%s]: %s", triggerID, err.Error())
+			showErrorToUser(responseURL, ":warning: Error opening up interactive prompt. Try again, maybe?")
 
 			return
 		}
@@ -407,32 +432,53 @@ func (mp *MarcoPoller) StartPoll(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	mp.createNewPoll(question, options, creator, PollFeatures{}, responseURL, w)
+}
+
+// showErrorToUser sends an ephemeral response to a user with a best effort. If there's an error
+// sending the message, we log the error but can't do anything more
+func showErrorToUser(responseURL string, errorMsg string) {
+	actionResponse := ActionResponse{ResponseType: "ephemeral", Text: errorMsg, ReplaceOriginal: false}
+	resp, err := req.Post(responseURL, req.BodyJSON(&actionResponse))
+	if err != nil || resp.Response().StatusCode != 200 {
+		if err != nil {
+			log.Printf("Error sending error message [%s] to user: %s", errorMsg, err.Error())
+		} else {
+			log.Printf("Error sending error message [%s] to user: %s", errorMsg, resp.String())
+		}
+
+		return
+	}
+}
+
+// createNewPoll creates a new poll and handles the persistence and posting to slack
+func (mp *MarcoPoller) createNewPoll(question string, options []string, creator string, features PollFeatures, responseURL string, w http.ResponseWriter) {
 	pollCreationTime := time.Now()
-	poll := Poll{ID: generatePollID(pollCreationTime.Unix()), Question: question, Options: options, Creator: creator}
+	poll := Poll{ID: generatePollID(pollCreationTime.Unix()), Question: question, Options: options, Creator: creator, Features: features}
 
 	encodedPoll, err := encodePoll(poll)
 	if err != nil {
 		log.Printf("Error encoding poll: %s", err.Error())
-		http.Error(w, err.Error(), 500)
+		showErrorToUser(responseURL, ":warning: Error encoding poll. Please report this at https://github.com/alexandre-normand/marcopoller")
 		return
 	}
 
 	err = mp.storer.PutSiloString(poll.ID, pollInfoKey, encodedPoll)
 	if err != nil {
 		log.Printf("Error persisting poll [%s]", poll.ID)
-		http.Error(w, err.Error(), 500)
+		showErrorToUser(responseURL, ":warning: Error persisting poll. Please try again.")
 		return
 	}
 
-	actionResponse := ActionResponse{ResponseType: "in_channel", Blocks: renderPoll(poll, map[string][]Voter{})}
+	actionResponse := ActionResponse{ResponseType: "in_channel", Blocks: renderPoll(poll, map[string][]Voter{}, false)}
 	resp, err := req.Post(responseURL, req.BodyJSON(&actionResponse))
 	if err != nil || resp.Response().StatusCode != 200 {
 		if err != nil {
 			log.Printf("Error writing new poll [%s] message: %s", poll.ID, err.Error())
-			http.Error(w, err.Error(), 500)
+			showErrorToUser(responseURL, ":warning: Error writing new poll to slack. Please try again.")
 		} else {
 			log.Printf("Error writing new poll [%s] message: %s", poll.ID, resp.String())
-			http.Error(w, resp.String(), 500)
+			showErrorToUser(responseURL, ":warning: Error writing new poll to slack. Please try again.")
 		}
 
 		return
@@ -440,8 +486,6 @@ func (mp *MarcoPoller) StartPoll(w http.ResponseWriter, r *http.Request) {
 
 	ctx := context.Background()
 	mp.instruments.pollCount.Add(ctx, 1)
-
-	w.WriteHeader(http.StatusOK)
 }
 
 // slackTimestampToTime converts a slack timestamp string (something like "1556928600.008500") to a time.
@@ -459,20 +503,6 @@ func generatePollID(timestamp int64) (pollID string) {
 	return fmt.Sprintf("%d-%s", timestamp, shortuuid.New())
 }
 
-// returnActionResponse encodes the json response and writes it ensuring http headers and status code are
-// correctly set
-func returnActionResponse(w http.ResponseWriter, resp interface{}) (err error) {
-	body, err := json.Marshal(resp)
-	if err != nil {
-		return err
-	}
-
-	w.Header().Set("Content-type", "application/json")
-	io.WriteString(w, string(body))
-
-	return nil
-}
-
 // getPollCreationTime returns the poll creation time from the timestamp part of its identifier. To support legacy
 // polls that didn't have this format, a zero time is returned if the format doesn't include the creation time. This
 // implies that the poll is "old" and therefore might be treated as expired
@@ -488,13 +518,13 @@ func getPollCreationTime(pollID string) (creationTime time.Time) {
 }
 
 // parseNewPollRequest parses a new poll request and returns the pollText, the creator and the response url
-func parseNewPollRequest(requestBody string) (pollText string, creator string, responseUrl string, err error) {
+func parseNewPollRequest(requestBody string) (pollText string, creator string, responseURL string, triggerID string, err error) {
 	params, err := parseRequest(requestBody)
 	if err != nil {
-		return "", "", "", err
+		return "", "", "", "", err
 	}
 
-	return params[textParam], params[creatorParam], params[responseURLParam], nil
+	return params[textParam], params[creatorParam], params[responseURLParam], params[triggerIDParam], nil
 }
 
 // parseRequest parses a slack request parameters. Since slack request parameters have a single value,
@@ -513,9 +543,9 @@ func parseRequest(requestBody string) (params map[string]string, err error) {
 	return params, nil
 }
 
-// parseCallback parses a slack callback. If the payload is empty or there's a parsing error
-// a zero-value callback is returned along with the error
-func parseCallback(payload string) (callback Callback, err error) {
+// parseCallback parses an InteractionCallback. If the payload is empty or there's a parsing error
+// a zero-value InteractionCallback is returned along with the error
+func parseCallback(payload string) (callback InteractionCallback, err error) {
 	if payload == "" {
 		return callback, fmt.Errorf("Empty payload")
 	}
@@ -540,16 +570,23 @@ func encodePoll(poll Poll) (encoded string, err error) {
 }
 
 // renderPoll renders a poll with its votes to slack blocks
-func renderPoll(poll Poll, votes map[string][]Voter) (blocks []slack.Block) {
+func renderPoll(poll Poll, votes map[string][]Voter, votingActive bool) (blocks []slack.Block) {
 	blocks = make([]slack.Block, 0)
 
 	blocks = append(blocks, slack.NewSectionBlock(slack.NewTextBlockObject("mrkdwn", fmt.Sprintf("*%s*", poll.Question), false, false), nil, nil))
 	blocks = append(blocks, slack.NewDividerBlock())
 	for i, opt := range poll.Options {
 		optionID := fmt.Sprintf("%d", i)
-		voteButton := slack.NewButtonBlockElement(poll.ID, optionID, slack.NewTextBlockObject("plain_text", "Vote", false, false))
-		voteButton.Style = slack.StylePrimary
-		blocks = append(blocks, *slack.NewSectionBlock(slack.NewTextBlockObject("mrkdwn", fmt.Sprintf(" • %s", opt), false, false), nil, slack.NewAccessory(voteButton)))
+
+		var accessory *slack.Accessory
+		if !votingActive {
+			voteButton := slack.NewButtonBlockElement(formatButtonID(poll.ID, voteButtonValue), optionID, slack.NewTextBlockObject("plain_text", "Vote", false, false))
+			voteButton.Style = slack.StylePrimary
+
+			accessory = slack.NewAccessory(voteButton)
+		}
+
+		blocks = append(blocks, *slack.NewSectionBlock(slack.NewTextBlockObject("mrkdwn", fmt.Sprintf(" • %s", opt), false, false), nil, accessory))
 		if voters, ok := votes[optionID]; ok {
 			voteBlocks := make([]slack.MixedElement, 0)
 			i := 0
@@ -568,18 +605,57 @@ func renderPoll(poll Poll, votes map[string][]Voter) (blocks []slack.Block) {
 		}
 	}
 
-	deleteButton := slack.NewButtonBlockElement(poll.ID, deleteValue, slack.NewTextBlockObject("plain_text", "Delete poll", false, false))
-	deleteButton.Style = slack.StyleDanger
-	blocks = append(blocks, slack.NewSectionBlock(slack.NewTextBlockObject("mrkdwn", " ", false, false), nil, slack.NewAccessory(deleteButton)))
-	blocks = append(blocks, slack.NewContextBlock("", slack.NewTextBlockObject("mrkdwn", fmt.Sprintf("Created by <@%s>", poll.Creator), false, false)))
+	if !votingActive {
+		deleteButton := slack.NewButtonBlockElement(formatButtonID(poll.ID, deleteButtonValue), deleteButtonValue, slack.NewTextBlockObject("plain_text", "Delete poll", false, false))
+		deleteButton.Style = slack.StyleDanger
+
+		blocks = append(blocks, slack.NewActionBlock(poll.ID, slack.NewButtonBlockElement(formatButtonID(poll.ID, closeButtonValue), closeButtonValue, slack.NewTextBlockObject("plain_text", "Close voting", false, false)), deleteButton))
+		blocks = append(blocks, slack.NewContextBlock("", slack.NewTextBlockObject("mrkdwn", fmt.Sprintf("Created by <@%s>", poll.Creator), false, false)))
+	} else {
+		blocks = append(blocks, slack.NewContextBlock("", slack.NewTextBlockObject("mrkdwn", fmt.Sprintf("Created by <@%s> (voting closed)", poll.Creator), false, false)))
+	}
 
 	return blocks
 }
 
-// RegisterVote handles a slack voting button action and processes it by storing the vote and updating the
-// poll results (the slack message) accordingly. This function is meant to be wrapped
-// by a function that knows how to fetch the slackToken and the slackSigningSecret secrets in order
-// to be deployable to gcloud
+// formatButtonID formats a button action ID
+func formatButtonID(pollID string, action string) (buttonID string) {
+	return fmt.Sprintf("%s%s%s", pollID, buttonIDPartDelimiter, action)
+}
+
+// createInteractivePollPrompt renders the content of a new poll dialog
+func createInteractivePollPrompt() (viewRequest slack.ModalViewRequest) {
+	blocks := make([]slack.Block, 0)
+
+	conversationSelect := slack.NewOptionsSelectBlockElement(slack.OptTypeConversations, nil, pollConversationSelectActionID)
+	conversationSelect.DefaultToCurrentConversation = true
+	conversationSelect.ResponseURLEnabled = true
+
+	blocks = append(blocks, slack.NewInputBlock(pollConversationInputBlockID, slack.NewTextBlockObject("plain_text", "Where do you want to send your poll?", false, false), conversationSelect))
+	blocks = append(blocks, slack.NewInputBlock(pollQuestionInputBlockID, slack.NewTextBlockObject("plain_text", "What's your poll about?", false, false), slack.NewPlainTextInputBlockElement(slack.NewTextBlockObject("plain_text", "What's your favorite color?", false, false), pollQuestionActionID)))
+
+	answerOptionsInput := slack.NewPlainTextInputBlockElement(slack.NewTextBlockObject("plain_text", "All the color options (one per line)", false, false), pollOptionsActionID)
+	answerOptionsInput.Multiline = true
+	answerOptionsBlock := slack.NewInputBlock(pollOptionsInputBlockID, slack.NewTextBlockObject("plain_text", "Answer Options", false, false), answerOptionsInput)
+	answerOptionsBlock.Hint = slack.NewTextBlockObject("plain_text", "Enter the answer options (one per line)", false, false)
+	blocks = append(blocks, answerOptionsBlock)
+
+	blocks = append(blocks, slack.NewInputBlock(pollFeaturesInputBlockID, slack.NewTextBlockObject("plain_text", "Options", false, false), slack.NewCheckboxGroupsBlockElement(pollFeaturesActionID, slack.NewOptionBlockObject(multiAnswerOptionID, slack.NewTextBlockObject("plain_text", multiAnswerFeatureValue, false, false)))))
+
+	viewRequest.Type = slack.VTModal
+	viewRequest.Title = slack.NewTextBlockObject("plain_text", friendlyName, false, false)
+	viewRequest.Close = slack.NewTextBlockObject("plain_text", "Cancel", false, false)
+	viewRequest.Submit = slack.NewTextBlockObject("plain_text", "Create Poll", false, false)
+	viewRequest.CallbackID = interactivePollCallbackID
+	viewRequest.Blocks = slack.Blocks{BlockSet: blocks}
+
+	return viewRequest
+}
+
+// HandleInteractions handles user interactions callbacks and processes them according to their
+// type and content.
+// This function is meant to be wrapped by a function that knows how to fetch the
+// slackToken and the slackSigningSecret secrets in order to be deployable to gcloud
 //
 // Example (the companion berglas-backed wrapping implementation):
 //
@@ -594,10 +670,10 @@ func renderPoll(poll Poll, votes map[string][]Voter) (blocks []slack.Block) {
 // 	 	mp = mpoller
 //   }
 //
-//   func RegisterVote(w http.ResponseWriter, r *http.Request) {
-//   	 mp.RegisterVote(os.Getenv(slackTokenEnv), os.Getenv(signingSecretEnv), w, r)
+//   func HandleInteractions(w http.ResponseWriter, r *http.Request) {
+//   	 mp.HandleInteractions(os.Getenv(slackTokenEnv), os.Getenv(signingSecretEnv), w, r)
 //   }
-func (mp *MarcoPoller) RegisterVote(w http.ResponseWriter, r *http.Request) {
+func (mp *MarcoPoller) HandleInteractions(w http.ResponseWriter, r *http.Request) {
 	body, err := ioutil.ReadAll(r.Body)
 	if err != nil {
 		log.Printf("Error reading request body: %v", err)
@@ -623,117 +699,109 @@ func (mp *MarcoPoller) RegisterVote(w http.ResponseWriter, r *http.Request) {
 	payload := params["payload"]
 	callback, err := parseCallback(payload)
 	if err != nil {
-		log.Printf("Error parsing callback payload: %v", err)
+		log.Printf("Error parsing interaction callback payload [%s]: %v", payload, err)
 		http.Error(w, err.Error(), 400)
 		return
 	}
 
-	pollID := pollID(callback)
+	// Request accepted so we send back the 200 OK to slack to avoid timeouts
+	w.WriteHeader(http.StatusOK)
+
+	if callback.Type == "block_actions" {
+		mp.handlePollInteractions(callback, w)
+		return
+	} else if callback.Type == "view_submission" {
+		mp.handleInteractivePollSubmission(callback, w)
+
+		return
+	} else {
+		errMsg := fmt.Sprintf("Unknown interaction callback type: %s", callback.Type)
+		log.Print(errMsg)
+		showErrorToUser(callback.ResponseURL, fmt.Sprintf(":warning: %s", errMsg))
+		return
+	}
+}
+
+// handlePollInteractions handles interactions on a poll (via slack voting or action buttons) and processes that by
+// updating the state of a poll and reflecting that state on slack.
+func (mp *MarcoPoller) handlePollInteractions(callback InteractionCallback, w http.ResponseWriter) {
+	pollID, err := pollID(callback)
+	if err != nil {
+		log.Printf("Error extracting poll identifier from callback [%v]: %s", callback, err.Error())
+		showErrorToUser(callback.ResponseURL, ":warning: Error extracting poll identifier from callback. Please report this at https://github.com/alexandre-normand/marcopoller.")
+		return
+	}
 
 	// Verify the validity of the poll before we proceed with handling the vote
 	err = mp.pollVerifier.Verify(pollID, actionTime(callback))
 
 	// Poll is expired/invalid so handle new votes by telling users and poll deletions by deleting the message
 	if err != nil {
-		mp.debugf("Invalid vote for poll [%s] with action callback [%v]", pollID, callback)
+		mp.debugf("Invalid vote for poll [%s] with action interaction callback [%v]", pollID, callback)
 
-		actionResponse := ActionResponse{ResponseType: "ephemeral", Text: fmt.Sprintf(":warning: Sorry, %s", err.Error()), ReplaceOriginal: false}
-		resp, err := req.Post(callback.ResponseURL, req.BodyJSON(&actionResponse))
-		if err != nil || resp.Response().StatusCode != 200 {
-			if err != nil {
-				log.Printf("Error writing slash response for vote registration on poll [%s]: %s", pollID, err.Error())
-				http.Error(w, err.Error(), 500)
-			} else {
-				log.Printf("Error writing slash response for vote registration on poll [%s]: %s", pollID, resp.String())
-				http.Error(w, resp.String(), 500)
-			}
-
-			return
-		}
-
+		showErrorToUser(callback.ResponseURL, fmt.Sprintf(":warning: Sorry, %s", err.Error()))
 		return
 	}
 
 	encodedPoll, err := mp.storer.GetSiloString(pollID, pollInfoKey)
 	if err != nil {
 		log.Printf("Error getting existing poll info for id [%s]: %v", pollID, err)
-		http.Error(w, err.Error(), 500)
+		showErrorToUser(callback.ResponseURL, ":warning: Error getting existing poll info. Please try again.")
 		return
 	}
 
 	poll, err := decodePoll(encodedPoll)
 	if err != nil {
 		log.Printf("Error parsing existing poll [%s] for id [%s]: %v", encodedPoll, pollID, err)
-		http.Error(w, err.Error(), 500)
+		showErrorToUser(callback.ResponseURL, ":warning: Error parsing existing poll info. Please report this issue at https://github.com/alexandre-normand/marcopoller")
 		return
 	}
 
 	vote := voteValue(callback)
-	if vote == deleteValue {
-		if poll.Creator == callback.User.ID {
-			// Delete poll and votes from storage
-			err := mp.deletePoll(pollID)
-			if err != nil {
-				log.Printf("Error deleting poll [%s]: %s", pollID, err.Error())
-				http.Error(w, err.Error(), 500)
-				return
-			}
 
-			resp, err := req.Post(callback.ResponseURL, req.BodyJSON(&DeleteMessage{DeleteOriginal: true}))
-			if err != nil || resp.Response().StatusCode != 200 {
-				if err != nil {
-					log.Printf("Error deleting message: %v", err)
-					http.Error(w, err.Error(), 500)
-				} else {
-					log.Printf("Error deleting message: %s", resp.String())
-					http.Error(w, resp.String(), 500)
-				}
+	if vote == deleteButtonValue {
+		mp.handlePollDeletion(poll, callback, w)
+		return
+	} else if vote == closeButtonValue {
+		mp.handlePollClosure(poll, callback, w)
+		return
+	}
 
-				return
-			}
+	// If poll supports multiple answers, read back the existing votes for the user and toggle the vote
+	if poll.Features.MultiAnswers {
+		userVotes, err := mp.storer.GetSiloString(poll.ID, callback.User.ID)
 
-			return
-		} else {
-			actionResponse := ActionResponse{ResponseType: "ephemeral", Text: fmt.Sprintf(":warning: Only the poll creator (<@%s>) is allowed to delete the poll", poll.Creator), ReplaceOriginal: false}
-			resp, err := req.Post(callback.ResponseURL, req.BodyJSON(&actionResponse))
-			if err != nil || resp.Response().StatusCode != 200 {
-				if err != nil {
-					log.Printf("Error writing slash response prohibited deletion of poll [%s]: %s", pollID, err.Error())
-					http.Error(w, err.Error(), 500)
-				} else {
-					log.Printf("Error writing slash response prohibited deletion of poll [%s]: %s", pollID, resp.String())
-					http.Error(w, resp.String(), 500)
-				}
-
-				return
-			}
-
+		if err != nil && err != datastore.ErrNoSuchEntity {
+			log.Printf("Error getting existing votes for user [%s] on poll id [%s]: %v", callback.User.ID, pollID, err)
+			showErrorToUser(callback.ResponseURL, ":warning: Error loading existing votes. Please try again.")
 			return
 		}
+
+		vote = toggleVoteForValue(userVotes, vote)
 	}
 
 	err = mp.storer.PutSiloString(poll.ID, callback.User.ID, vote)
 	if err != nil {
 		log.Printf("Error storing vote [%s] for user [%s] for poll [%s]: %v", vote, callback.User.ID, poll.ID, err)
-		http.Error(w, err.Error(), 500)
+		showErrorToUser(callback.ResponseURL, ":warning: Error persisting vote. Please try again.")
 		return
 	}
 
 	votes, err := mp.listVotes(poll.ID)
 	if err != nil {
 		log.Printf("Error listing votes for poll [%s]: %v", poll.ID, err)
-		http.Error(w, err.Error(), 500)
+		showErrorToUser(callback.ResponseURL, ":warning: Error listing votes for poll. Please try again.")
 		return
 	}
 
-	resp, err := req.Post(callback.ResponseURL, req.BodyJSON(&UpdateMessage{ActionResponse: ActionResponse{Blocks: renderPoll(poll, votes), ReplaceOriginal: true}}))
+	resp, err := req.Post(callback.ResponseURL, req.BodyJSON(&UpdateMessage{ActionResponse: ActionResponse{Blocks: renderPoll(poll, votes, false), ReplaceOriginal: true}}))
 	if err != nil || resp.Response().StatusCode != 200 {
 		if err != nil {
 			log.Printf("Error updating poll [%s] message : %v", poll.ID, err)
-			http.Error(w, err.Error(), 500)
+			showErrorToUser(callback.ResponseURL, ":warning: Error updating slack message for poll. Please try again.")
 		} else {
 			log.Printf("Error updating poll [%s] message : %s", poll.ID, resp.String())
-			http.Error(w, resp.String(), 500)
+			showErrorToUser(callback.ResponseURL, ":warning: Error updating slack message for poll. Please try again.")
 		}
 
 		return
@@ -741,6 +809,160 @@ func (mp *MarcoPoller) RegisterVote(w http.ResponseWriter, r *http.Request) {
 
 	ctx := context.Background()
 	mp.instruments.votingCount.Add(ctx, 1)
+}
+
+// handleInteractivePollSubmission handles a submission of a modal interactive poll dialog
+func (mp *MarcoPoller) handleInteractivePollSubmission(callback InteractionCallback, w http.ResponseWriter) {
+	if callback.View.CallbackID != interactivePollCallbackID {
+		errMsg := fmt.Sprintf("Invalid view submission with unknown callback id: [%s]", callback.CallbackID)
+		log.Print(errMsg)
+		showErrorToUser(callback.ResponseURL, fmt.Sprintf(":warning: %s. Please report this at https://github.com/alexandre-normand/marcopoller.", errMsg))
+	}
+
+	if callback.View.State == nil {
+		errMsg := fmt.Sprintf("Invalid view submission with nil state")
+		log.Print(errMsg)
+		showErrorToUser(callback.ResponseURL, fmt.Sprintf(":warning: %s. Please report this at https://github.com/alexandre-normand/marcopoller.", errMsg))
+	}
+
+	values := callback.View.State.Values
+
+	question := values[pollQuestionInputBlockID][pollQuestionActionID].Value
+	rawOptions := values[pollOptionsInputBlockID][pollOptionsActionID].Value
+	rawSelectedOptions := values[pollFeaturesInputBlockID][pollFeaturesActionID].SelectedOptions
+
+	selectedOptionsAsMap := make(map[string]bool)
+	for _, o := range rawSelectedOptions {
+		selectedOptionsAsMap[o.Value] = true
+	}
+
+	multiAnswer := selectedOptionsAsMap[multiAnswerOptionID]
+
+	if len(callback.ResponseURLs) < 1 {
+		errMsg := "Invalid view submission missing response_urls"
+		log.Print(errMsg)
+		showErrorToUser(callback.ResponseURL, fmt.Sprintf(":warning: %s. Please report this at https://github.com/alexandre-normand/marcopoller.", errMsg))
+	}
+
+	pollOptions := strings.Split(rawOptions, "\n")
+	validOptions := make([]string, 0)
+	for _, o := range pollOptions {
+		if o != "" {
+			validOptions = append(validOptions, o)
+		}
+	}
+
+	mp.createNewPoll(question, validOptions, callback.User.ID, PollFeatures{MultiAnswers: multiAnswer}, callback.ResponseURLs[0].ResponseURL, w)
+}
+
+// handlePollDeletion handles a request to delete a poll
+func (mp *MarcoPoller) handlePollDeletion(poll Poll, callback InteractionCallback, w http.ResponseWriter) {
+	pollID, err := pollID(callback)
+	if err != nil {
+		log.Printf("Error extracting poll identifier from callback [%v]: %s", callback, err.Error())
+		showErrorToUser(callback.ResponseURL, ":warning: Error extracting poll identifier from callback. Please report this issue at https://github.com/alexandre-normand/marcopoller.")
+		return
+	}
+
+	if poll.Creator == callback.User.ID {
+		// Delete poll and votes from storage
+		err := mp.deletePoll(pollID)
+		if err != nil {
+			log.Printf("Error deleting poll [%s]: %s", pollID, err.Error())
+			showErrorToUser(callback.ResponseURL, ":warning: Error deleting poll. Please try again")
+			return
+		}
+
+		resp, err := req.Post(callback.ResponseURL, req.BodyJSON(&DeleteMessage{DeleteOriginal: true}))
+		if err != nil || resp.Response().StatusCode != 200 {
+			if err != nil {
+				log.Printf("Error deleting message: %v", err)
+				showErrorToUser(callback.ResponseURL, ":warning: Error deleting message from slack")
+			} else {
+				log.Printf("Error deleting message: %s", resp.String())
+				showErrorToUser(callback.ResponseURL, ":warning: Error deleting message from slack")
+			}
+
+			return
+		}
+
+		return
+	}
+
+	showErrorToUser(callback.ResponseURL, fmt.Sprintf(":warning: Only the poll creator (<@%s>) is allowed to delete the poll", poll.Creator))
+	return
+}
+
+// handlePollClosure handles a request to close a poll
+func (mp *MarcoPoller) handlePollClosure(poll Poll, callback InteractionCallback, w http.ResponseWriter) {
+	pollID, err := pollID(callback)
+	if err != nil {
+		log.Printf("Error extracting poll identifier from callback [%v]: %s", callback, err.Error())
+		showErrorToUser(callback.ResponseURL, ":warning: Error extracting poll identifier from callback. Please report this issue at https://github.com/alexandre-normand/marcopoller.")
+		return
+	}
+
+	if poll.Creator == callback.User.ID {
+		votes, err := mp.listVotes(poll.ID)
+		if err != nil {
+			log.Printf("Error listing votes for poll [%s]: %v", poll.ID, err)
+			showErrorToUser(callback.ResponseURL, ":warning: Error listing votes for poll. Please try again")
+			return
+		}
+
+		// Post the final poll update to slack
+		resp, err := req.Post(callback.ResponseURL, req.BodyJSON(&UpdateMessage{ActionResponse: ActionResponse{Blocks: renderPoll(poll, votes, true), ReplaceOriginal: true}}))
+		if err != nil || resp.Response().StatusCode != 200 {
+			if err != nil {
+				log.Printf("Error updating poll [%s] message : %v", poll.ID, err)
+				showErrorToUser(callback.ResponseURL, ":warning: Error updating poll message. Please try again")
+			} else {
+				log.Printf("Error updating poll [%s] message : %s", poll.ID, resp.String())
+				showErrorToUser(callback.ResponseURL, ":warning: Error updating poll message. Please try again")
+			}
+
+			return
+		}
+
+		// Delete poll and votes from storage
+		err = mp.deletePoll(pollID)
+		if err != nil {
+			log.Printf("Error deleting poll [%s]: %s", pollID, err.Error())
+			return
+		}
+
+		return
+	}
+
+	showErrorToUser(callback.ResponseURL, fmt.Sprintf(":warning: Only the poll creator (<@%s>) is allowed to close the poll", poll.Creator))
+	return
+}
+
+// toggleVoteForValue toggles a vote from an existing delimited string of all of a user's votes
+func toggleVoteForValue(userVotes string, voteToToggle string) (newUserVotes string) {
+	voteMap := make(map[string]bool)
+
+	if userVotes != "" {
+		values := strings.Split(userVotes, voteDelimiter)
+
+		for _, v := range values {
+			voteMap[v] = true
+		}
+	}
+
+	if _, exists := voteMap[voteToToggle]; exists {
+		delete(voteMap, voteToToggle)
+	} else {
+		voteMap[voteToToggle] = true
+	}
+
+	allVotes := make([]string, 0, len(voteMap))
+	for vote := range voteMap {
+		allVotes = append(allVotes, vote)
+	}
+
+	sort.Strings(allVotes)
+	return strings.Join(allVotes, voteDelimiter)
 }
 
 // listVotes returns the list of votes: a map of vote values for a poll ID to the array of voters. If an error occurs
@@ -751,24 +973,31 @@ func (mp *MarcoPoller) listVotes(pollID string) (votes map[string][]Voter, err e
 		return votes, err
 	}
 
-	// Omit the special pollInfoKey from the scan results since that's the
-	// only one not a vote
-	delete(values, pollInfoKey)
+	// Filter out the pollInfoKey
+	voteValues := make(map[string]string)
+	for k, v := range values {
+		if k != pollInfoKey {
+			voteValues[k] = v
+		}
+	}
 
 	votes = make(map[string][]Voter)
-	for userID, value := range values {
+	for userID, userVoting := range voteValues {
 		user, err := mp.userFinder.GetUserInfo(userID)
 		if err != nil {
 			return nil, err
 		}
 
-		if _, ok := votes[value]; !ok {
-			votes[value] = make([]Voter, 0)
+		userVotes := strings.Split(userVoting, voteDelimiter)
+		for _, value := range userVotes {
+			if _, ok := votes[value]; !ok {
+				votes[value] = make([]Voter, 0)
+			}
+
+			voter := Voter{userID: userID, avatarURL: user.Profile.Image24, name: user.RealName}
+
+			votes[value] = append(votes[value], voter)
 		}
-
-		voter := Voter{userID: userID, avatarURL: user.Profile.Image24, name: user.RealName}
-
-		votes[value] = append(votes[value], voter)
 	}
 
 	return votes, nil
@@ -781,7 +1010,7 @@ func (mp *MarcoPoller) deletePoll(pollID string) (err error) {
 		return err
 	}
 
-	for k, _ := range values {
+	for k := range values {
 		// If we see an error, we keep it but still continue deleting entries
 		if err == nil {
 			err = mp.storer.DeleteSiloString(pollID, k)
@@ -798,28 +1027,38 @@ func decodePoll(encoded string) (poll Poll, err error) {
 	return poll, err
 }
 
-// voteValue returns the vote value in a given callback
-func voteValue(callback Callback) (vote string) {
-	return callback.Actions[0].Value
+// voteValue returns the vote value in a given interaction callback
+func voteValue(callback InteractionCallback) (vote string) {
+	return callback.ActionCallback.BlockActions[0].Value
 }
 
-// pollID returns the poll ID in a given callback
-func pollID(callback Callback) (pollID string) {
-	return callback.Actions[0].ActionID
+// pollID returns the poll ID in a given interaction callback
+func pollID(callback InteractionCallback) (pollID string, err error) {
+	actionID := callback.ActionCallback.BlockActions[0].ActionID
+	parts := strings.Split(actionID, buttonIDPartDelimiter)
+	if len(parts) < 2 {
+		return "", fmt.Errorf("Invalid format, expected [string%saction] but got [%s]", buttonIDPartDelimiter, actionID)
+	}
+	return parts[0], nil
 }
 
-// actionTime returns the action time in a given callback
-func actionTime(callback Callback) (actionTime time.Time) {
-	timestamp := callback.Actions[0].ActionTs
+// actionTime returns the action time in a given interaction callback
+func actionTime(callback InteractionCallback) (actionTime time.Time) {
+	timestamp := callback.ActionCallback.BlockActions[0].ActionTs
 
 	return slackTimestampToTime(timestamp)
 }
 
 // parsePollParams parses poll parameters. The expected format is: "Some question" "Option 1" "Option 2" "Option 3"
-func parsePollParams(rawPoll string) (pollQuestion string, options []string, err error) {
+func parsePollParams(rawPoll string) (interactiveReq bool, pollQuestion string, options []string, err error) {
 	inQuote := false
 	params := make([]string, 0)
 	var strBuilder strings.Builder
+
+	// If no parameters provided, this means it's going to be a request for an interactive poll dialog
+	if len(strings.TrimSpace(rawPoll)) == 0 {
+		return true, "", nil, nil
+	}
 
 	// Sacrifice some fidelity for convenience by normalizing smart quotes to standard quotes before parsing so that people
 	// having smart quoting enabled don't feel frustrated when the poll doesn't render correctly
@@ -861,10 +1100,10 @@ func parsePollParams(rawPoll string) (pollQuestion string, options []string, err
 	}
 
 	if len(params) < 2 {
-		return "", nil, fmt.Errorf("Missing parameters in string [%s]", rawPoll)
+		return false, "", nil, fmt.Errorf("Missing parameters in string [%s]", rawPoll)
 	}
 
-	return params[0], params[1:], nil
+	return false, params[0], params[1:], nil
 }
 
 // normalizePollRequest applies a few operation to normalize a polling request prior to parsing:
@@ -895,7 +1134,7 @@ func (mp *MarcoPoller) DeleteExpiredPolls(deletionTime time.Time) (count int, er
 		return 0, err
 	}
 
-	for pollID, _ := range polls {
+	for pollID := range polls {
 		if mp.pollVerifier.Verify(pollID, deletionTime) != nil {
 			err := mp.deletePoll(pollID)
 			if err != nil {
