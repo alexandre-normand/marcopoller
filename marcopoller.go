@@ -640,7 +640,9 @@ func createInteractivePollPrompt() (viewRequest slack.ModalViewRequest) {
 	answerOptionsBlock.Hint = slack.NewTextBlockObject("plain_text", "Enter the answer options (one per line)", false, false)
 	blocks = append(blocks, answerOptionsBlock)
 
-	blocks = append(blocks, slack.NewInputBlock(pollFeaturesInputBlockID, slack.NewTextBlockObject("plain_text", "Options", false, false), slack.NewCheckboxGroupsBlockElement(pollFeaturesActionID, slack.NewOptionBlockObject(multiAnswerOptionID, slack.NewTextBlockObject("plain_text", multiAnswerFeatureValue, false, false)))))
+	featuresInputBlock := slack.NewInputBlock(pollFeaturesInputBlockID, slack.NewTextBlockObject("plain_text", "Options", false, false), slack.NewCheckboxGroupsBlockElement(pollFeaturesActionID, slack.NewOptionBlockObject(multiAnswerOptionID, slack.NewTextBlockObject("plain_text", multiAnswerFeatureValue, false, false))))
+	featuresInputBlock.Optional = true
+	blocks = append(blocks, featuresInputBlock)
 
 	viewRequest.Type = slack.VTModal
 	viewRequest.Title = slack.NewTextBlockObject("plain_text", friendlyName, false, false)

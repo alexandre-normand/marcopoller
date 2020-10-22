@@ -2,10 +2,9 @@ package marcopoller
 
 import (
 	"encoding/json"
-	"testing"
-
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"testing"
 )
 
 func TestRenderPollNoVotes(t *testing.T) {
@@ -146,7 +145,7 @@ func TestInteractivePollRequestRendering(t *testing.T) {
 	render, err := json.Marshal(viewRequest)
 	require.NoError(t, err)
 
-	assert.Equal(t, "{\"type\":\"modal\",\"title\":{\"type\":\"plain_text\",\"text\":\"Marco Poller\"},\"blocks\":[{\"type\":\"input\",\"block_id\":\"poll_conversation_select\",\"label\":{\"type\":\"plain_text\",\"text\":\"Where do you want to send your poll?\"},\"element\":{\"type\":\"conversations_select\",\"action_id\":\"poll_conversation_select\",\"default_to_current_conversation\":true,\"response_url_enabled\":true}},{\"type\":\"input\",\"block_id\":\"poll_question\",\"label\":{\"type\":\"plain_text\",\"text\":\"What's your poll about?\"},\"element\":{\"type\":\"plain_text_input\",\"action_id\":\"poll_question\",\"placeholder\":{\"type\":\"plain_text\",\"text\":\"What's your favorite color?\"}}},{\"type\":\"input\",\"block_id\":\"poll_answer_options\",\"label\":{\"type\":\"plain_text\",\"text\":\"Answer Options\"},\"element\":{\"type\":\"plain_text_input\",\"action_id\":\"poll_answer_options\",\"placeholder\":{\"type\":\"plain_text\",\"text\":\"All the color options (one per line)\"},\"multiline\":true},\"hint\":{\"type\":\"plain_text\",\"text\":\"Enter the answer options (one per line)\"}},{\"type\":\"input\",\"block_id\":\"poll_features\",\"label\":{\"type\":\"plain_text\",\"text\":\"Options\"},\"element\":{\"type\":\"checkboxes\",\"action_id\":\"poll_features\",\"options\":[{\"text\":{\"type\":\"plain_text\",\"text\":\"Allow voters to vote for many options\"},\"value\":\"multivoting\"}]}}],\"close\":{\"type\":\"plain_text\",\"text\":\"Cancel\"},\"submit\":{\"type\":\"plain_text\",\"text\":\"Create Poll\"},\"callback_id\":\"interactive-poll-create\"}", string(render))
+	assert.Equal(t, "{\"type\":\"modal\",\"title\":{\"type\":\"plain_text\",\"text\":\"Marco Poller\"},\"blocks\":[{\"type\":\"input\",\"block_id\":\"poll_conversation_select\",\"label\":{\"type\":\"plain_text\",\"text\":\"Where do you want to send your poll?\"},\"element\":{\"type\":\"conversations_select\",\"action_id\":\"poll_conversation_select\",\"default_to_current_conversation\":true,\"response_url_enabled\":true}},{\"type\":\"input\",\"block_id\":\"poll_question\",\"label\":{\"type\":\"plain_text\",\"text\":\"What's your poll about?\"},\"element\":{\"type\":\"plain_text_input\",\"action_id\":\"poll_question\",\"placeholder\":{\"type\":\"plain_text\",\"text\":\"What's your favorite color?\"}}},{\"type\":\"input\",\"block_id\":\"poll_answer_options\",\"label\":{\"type\":\"plain_text\",\"text\":\"Answer Options\"},\"element\":{\"type\":\"plain_text_input\",\"action_id\":\"poll_answer_options\",\"placeholder\":{\"type\":\"plain_text\",\"text\":\"All the color options (one per line)\"},\"multiline\":true},\"hint\":{\"type\":\"plain_text\",\"text\":\"Enter the answer options (one per line)\"}},{\"type\":\"input\",\"block_id\":\"poll_features\",\"label\":{\"type\":\"plain_text\",\"text\":\"Options\"},\"element\":{\"type\":\"checkboxes\",\"action_id\":\"poll_features\",\"options\":[{\"text\":{\"type\":\"plain_text\",\"text\":\"Allow voters to vote for many options\"},\"value\":\"multivoting\"}]},\"optional\":true}],\"close\":{\"type\":\"plain_text\",\"text\":\"Cancel\"},\"submit\":{\"type\":\"plain_text\",\"text\":\"Create Poll\"},\"callback_id\":\"interactive-poll-create\"}", string(render))
 }
 
 func TestToggleVoteForValue(t *testing.T) {
@@ -357,4 +356,173 @@ func TestParseCallbackParsesResponseURLs(t *testing.T) {
 	assert.NoError(t, err)
 
 	assert.Equal(t, "https://hooks.slack.com/app/redacted/redacted/redacted", callback.ResponseURLs[0].ResponseURL)
+}
+
+func TestParseCallbackParsesState(t *testing.T) {
+	input := `
+	{
+  "type": "block_actions",
+  "user": {
+    "id": "redacted",
+    "username": "redacted",
+    "name": "redacted",
+    "team_id": "redacted"
+  },
+  "api_app_id": "redacted",
+  "token": "redacted",
+  "container": {
+    "type": "message",
+    "message_ts": "1603396789.000300",
+    "channel_id": "redacted",
+    "is_ephemeral": false
+  },
+  "trigger_id": "1471323389664.469250665127.ee979b5671d1bcfdf3d73ec6c602879e",
+  "team": {
+    "id": "redacted",
+    "domain": "redacted"
+  },
+  "channel": {
+    "id": "redacted",
+    "name": "privategroup"
+  },
+  "message": {
+    "type": "message",
+    "subtype": "bot_message",
+    "text": "This content can't be displayed.",
+    "ts": "1603396789.000300",
+    "bot_id": "redacted",
+    "blocks": [
+      {
+        "type": "section",
+        "block_id": "iQ0a",
+        "text": {
+          "type": "mrkdwn",
+          "text": "*Test*",
+          "verbatim": false
+        }
+      },
+      {
+        "type": "divider",
+        "block_id": "cnLo"
+      },
+      {
+        "type": "section",
+        "block_id": "eu/AJ",
+        "text": {
+          "type": "mrkdwn",
+          "text": " • Yes",
+          "verbatim": false
+        },
+        "accessory": {
+          "type": "button",
+          "action_id": "1603396789-8NUAND5diAybK5nm3QjHJM,vote",
+          "style": "primary",
+          "text": {
+            "type": "plain_text",
+            "text": "Vote",
+            "emoji": true
+          },
+          "value": "0"
+        }
+      },
+      {
+        "type": "context",
+        "block_id": "tVTg",
+        "elements": [
+          {
+            "type": "image",
+            "image_url": "redacted",
+            "alt_text": "redacted"
+          }
+        ]
+      },
+      {
+        "type": "section",
+        "block_id": "vTXj+",
+        "text": {
+          "type": "mrkdwn",
+          "text": " • No",
+          "verbatim": false
+        },
+        "accessory": {
+          "type": "button",
+          "action_id": "1603396789-8NUAND5diAybK5nm3QjHJM,vote",
+          "style": "primary",
+          "text": {
+            "type": "plain_text",
+            "text": "Vote",
+            "emoji": true
+          },
+          "value": "1"
+        }
+      },
+      {
+        "type": "actions",
+        "block_id": "1603396789-8NUAND5diAybK5nm3QjHJM",
+        "elements": [
+          {
+            "type": "button",
+            "action_id": "1603396789-8NUAND5diAybK5nm3QjHJM,close",
+            "text": {
+              "type": "plain_text",
+              "text": "Close voting",
+              "emoji": true
+            },
+            "value": "close"
+          },
+          {
+            "type": "button",
+            "action_id": "1603396789-8NUAND5diAybK5nm3QjHJM,delete",
+            "text": {
+              "type": "plain_text",
+              "text": "Delete poll",
+              "emoji": true
+            },
+            "style": "danger",
+            "value": "delete"
+          }
+        ]
+      },
+      {
+        "type": "context",
+        "block_id": "9s3uD",
+        "elements": [
+          {
+            "type": "mrkdwn",
+            "text": "Created by redactd",
+            "verbatim": false
+          }
+        ]
+      }
+    ],
+    "edited": {
+      "user": "redacted",
+      "ts": "1603396791.000000"
+    }
+  },
+  "state": {
+    "values": {}
+  },
+  "response_url": "redacted",
+  "actions": [
+    {
+      "action_id": "1603396789-8NUAND5diAybK5nm3QjHJM,vote",
+      "block_id": "eu/AJ",
+      "text": {
+        "type": "plain_text",
+        "text": "Vote",
+        "emoji": true
+      },
+      "value": "0",
+      "style": "primary",
+      "type": "button",
+      "action_ts": "1603396798.112344"
+    }
+  ]
+}`
+
+	callback, err := parseCallback(input)
+	assert.NoError(t, err)
+
+	assert.NotNil(t, callback.State)
 }

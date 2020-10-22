@@ -1,6 +1,7 @@
 package marcopoller
 
 import (
+	"encoding/json"
 	"github.com/slack-go/slack"
 )
 
@@ -28,6 +29,7 @@ type InteractionCallback struct {
 	BlockID         string                `json:"block_id"`
 	Container       slack.Container       `json:"container"`
 	ResponseURLs    []ResponseURL         `json:"response_urls"`
+	State           json.RawMessage       `json:"state,omitempty"`
 	slack.DialogSubmissionCallback
 	slack.ViewSubmissionCallback
 	slack.ViewClosedCallback
