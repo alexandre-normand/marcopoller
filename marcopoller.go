@@ -23,7 +23,7 @@ import (
 	"github.com/slack-go/slack"
 	"github.com/spf13/cast"
 	opentelemetry "go.opentelemetry.io/otel/api/global"
-	"go.opentelemetry.io/otel/api/key"
+	"go.opentelemetry.io/otel/api/kv"
 	"go.opentelemetry.io/otel/api/metric"
 	"google.golang.org/api/option"
 )
@@ -356,10 +356,11 @@ func NewWithOptions(opts ...Option) (mp *MarcoPoller, err error) {
 }
 
 func newInstruments(meter metric.Meter) *instruments {
-	defaultLabels := meter.Labels(key.New("name").String(appName))
+	defaultLabels := kv.Key("name").String(appName)
+	mt := metric.Must(meter)
 
-	pollCounter := meter.NewInt64Counter("pollCount")
-	voteCounter := meter.NewInt64Counter("votingCount")
+	pollCounter := mt.NewInt64Counter("pollCount")
+	voteCounter := mt.NewInt64Counter("votingCount")
 
 	return &instruments{
 		pollCount:   pollCounter.Bind(defaultLabels),
