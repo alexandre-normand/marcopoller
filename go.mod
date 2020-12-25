@@ -5,7 +5,7 @@ go 1.12
 require (
 	cloud.google.com/go/bigquery v1.6.0 // indirect
 	cloud.google.com/go/datastore v1.1.0
-	github.com/alexandre-normand/slackscot v1.46.0
+	github.com/alexandre-normand/slackscot v1.47.0
 	github.com/google/uuid v1.1.1 // indirect
 	github.com/imroc/req v0.2.4
 	github.com/kr/text v0.2.0 // indirect
@@ -14,8 +14,8 @@ require (
 	github.com/pkg/errors v0.8.1
 	github.com/slack-go/slack v0.7.2
 	github.com/spf13/cast v1.3.0
-	github.com/stretchr/testify v1.5.1
-	go.opentelemetry.io/otel v0.6.0
+	github.com/stretchr/testify v1.6.1
+	go.opentelemetry.io/otel v0.15.0
 	golang.org/x/tools v0.0.0-20200410194907-79a7a3126eef // indirect
 	google.golang.org/api v0.21.0
 	google.golang.org/genproto v0.0.0-20200410110633-0848e9f44c36 // indirect

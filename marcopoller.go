@@ -22,9 +22,9 @@ import (
 	"github.com/pkg/errors"
 	"github.com/slack-go/slack"
 	"github.com/spf13/cast"
-	opentelemetry "go.opentelemetry.io/otel/api/global"
-	"go.opentelemetry.io/otel/api/kv"
-	"go.opentelemetry.io/otel/api/metric"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/label"
+	"go.opentelemetry.io/otel/metric"
 	"google.golang.org/api/option"
 )
 
@@ -254,7 +254,7 @@ func OptionSlackVerifier(slackSigningSecret string) Option {
 // OptionDatastore sets a datastoredb as the implementation of GlobalSiloStringStorer
 func OptionDatastore(datastoreProjectID string, gcloudClientOpts ...option.ClientOption) Option {
 	return func(mp *MarcoPoller) (err error) {
-		meter := opentelemetry.MeterProvider().Meter("github.com/alexandre-normand/marcopoller")
+		meter := otel.GetMeterProvider().Meter("github.com/alexandre-normand/marcopoller")
 
 		mp.storer, err = datastoredb.NewWithTelemetry(appName, meter, persistenceKindName, datastoreProjectID, gcloudClientOpts...)
 		if err != nil {
@@ -349,14 +349,14 @@ func NewWithOptions(opts ...Option) (mp *MarcoPoller, err error) {
 		return nil, fmt.Errorf("Dialoguer is nil after applying all Options. Did you forget to set one?")
 	}
 
-	mp.meter = opentelemetry.MeterProvider().Meter("github.com/alexandre-normand/marcopoller")
+	mp.meter = otel.GetMeterProvider().Meter("github.com/alexandre-normand/marcopoller")
 	mp.instruments = newInstruments(mp.meter)
 
 	return mp, err
 }
 
 func newInstruments(meter metric.Meter) *instruments {
-	defaultLabels := kv.Key("name").String(appName)
+	defaultLabels := label.String("name", appName)
 	mt := metric.Must(meter)
 
 	pollCounter := mt.NewInt64Counter("pollCount")
