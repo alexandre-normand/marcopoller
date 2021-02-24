@@ -14,8 +14,9 @@ require (
 	github.com/pkg/errors v0.8.1
 	github.com/slack-go/slack v0.7.2
 	github.com/spf13/cast v1.3.0
-	github.com/stretchr/testify v1.6.1
-	go.opentelemetry.io/otel v0.15.0
+	github.com/stretchr/testify v1.7.0
+	go.opentelemetry.io/otel v0.17.0
+	go.opentelemetry.io/otel/metric v0.17.0
 	golang.org/x/tools v0.0.0-20200410194907-79a7a3126eef // indirect
 	google.golang.org/api v0.21.0
 	google.golang.org/genproto v0.0.0-20200410110633-0848e9f44c36 // indirect

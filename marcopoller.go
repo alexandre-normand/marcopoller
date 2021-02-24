@@ -22,9 +22,9 @@ import (
 	"github.com/pkg/errors"
 	"github.com/slack-go/slack"
 	"github.com/spf13/cast"
-	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/label"
 	"go.opentelemetry.io/otel/metric"
+	otel "go.opentelemetry.io/otel/metric/global"
 	"google.golang.org/api/option"
 )
 
